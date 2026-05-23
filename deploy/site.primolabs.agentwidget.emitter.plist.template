@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LaunchAgent template for the emitter. Install:
+       cp this file to ~/Library/LaunchAgents/site.primolabs.agentwidget.emitter.plist
+       replace REPLACE_WITH_ACCOUNT_TOKEN + paths, then:
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/site.primolabs.agentwidget.emitter.plist
+     Logs: ~/Library/Logs/agentwidget-emitter.log -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>site.primolabs.agentwidget.emitter</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Users/gordon/dev/agent-status-widget/emitter/node_modules/.bin/tsx</string>
+        <string>src/index.ts</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/gordon/dev/agent-status-widget/emitter</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>BACKEND_URL</key>
+        <string>https://152.42.234.112.sslip.io</string>
+        <key>ACCOUNT_TOKEN</key>
+        <string>REPLACE_WITH_ACCOUNT_TOKEN</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/gordon/Library/Logs/agentwidget-emitter.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/gordon/Library/Logs/agentwidget-emitter.log</string>
+</dict>
+</plist>
