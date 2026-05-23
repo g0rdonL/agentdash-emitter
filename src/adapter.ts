@@ -3,7 +3,7 @@ import type { StatusEvent, WidgetStatus } from './contract';
 import type { PersistedSessionInfo } from './happyFiles';
 import { loadPersistedSessions } from './happyFiles';
 import { deriveStatus } from './status';
-import { decryptAgentState, pendingRequestCount } from './decryptWrapper';
+import { decryptAgentState, pendingRequestCount, decryptMetadataTitle } from './decryptWrapper';
 
 export interface StatusEventCallback {
   (event: StatusEvent): void;
@@ -20,9 +20,26 @@ interface SessionRuntime {
   active: boolean;
   thinking: boolean;
   pendingRequestCount: number;
+  /** Chat title from decrypted metadata.summary.text; null until one arrives. */
+  title: string | null;
   lastEmitted: WidgetStatus | null;
+  lastEmittedLabel: string | null;
   lastActiveAt: number;
   debounceTimer: ReturnType<typeof setTimeout> | null;
+}
+
+function newRuntime(info: PersistedSessionInfo): SessionRuntime {
+  return {
+    info,
+    active: false,
+    thinking: false,
+    pendingRequestCount: 0,
+    title: null,
+    lastEmitted: null,
+    lastEmittedLabel: null,
+    lastActiveAt: 0,
+    debounceTimer: null,
+  };
 }
 
 export interface HappyAdapterOptions {
@@ -76,15 +93,7 @@ export class HappyAdapter implements StatusAdapter {
   start(onStatusEvent: StatusEventCallback): void {
     this.onEvent = onStatusEvent;
     for (const info of this.loadSessions()) {
-      this.sessions.set(info.sessionId, {
-        info,
-        active: false,
-        thinking: false,
-        pendingRequestCount: 0,
-        lastEmitted: null,
-        lastActiveAt: 0,
-        debounceTimer: null,
-      });
+      this.sessions.set(info.sessionId, newRuntime(info));
     }
 
     const socket = this.socketFactory(this.serverUrl, this.accountToken);
@@ -116,15 +125,7 @@ export class HappyAdapter implements StatusAdapter {
     if (rt) return rt;
     const info = this.loadSessions().find((s) => s.sessionId === sessionId);
     if (!info) return null;
-    rt = {
-      info,
-      active: false,
-      thinking: false,
-      pendingRequestCount: 0,
-      lastEmitted: null,
-      lastActiveAt: 0,
-      debounceTimer: null,
-    };
+    rt = newRuntime(info);
     this.sessions.set(sessionId, rt);
     return rt;
   }
@@ -151,17 +152,29 @@ export class HappyAdapter implements StatusAdapter {
     const targets: SessionRuntime[] = sessionId
       ? [this.ensureSession(sessionId)].filter((x): x is SessionRuntime => x !== null)
       : [...this.sessions.values()];
-    if (!body.agentState) return;
+    // An update may carry metadata (chat title) and/or agentState (permissions);
+    // handle each independently rather than requiring agentState to be present.
+    if (!body.metadata && !body.agentState) return;
     for (const rt of targets) {
-      if (body.agentState.value == null) {
-        rt.pendingRequestCount = 0;
-      } else {
-        const decrypted = decryptAgentState(
+      if (body.metadata?.value != null) {
+        const title = decryptMetadataTitle(
           rt.info.encryptionKey,
           rt.info.encryptionVariant,
-          body.agentState.value,
+          body.metadata.value,
         );
-        rt.pendingRequestCount = pendingRequestCount(decrypted);
+        if (title) rt.title = title;
+      }
+      if (body.agentState) {
+        if (body.agentState.value == null) {
+          rt.pendingRequestCount = 0;
+        } else {
+          const decrypted = decryptAgentState(
+            rt.info.encryptionKey,
+            rt.info.encryptionVariant,
+            body.agentState.value,
+          );
+          rt.pendingRequestCount = pendingRequestCount(decrypted);
+        }
       }
       this.scheduleEmit(rt);
     }
@@ -186,12 +199,15 @@ export class HappyAdapter implements StatusAdapter {
       thinking: rt.thinking,
       pendingRequestCount: rt.pendingRequestCount,
     });
-    if (status === rt.lastEmitted) return; // dedupe identical consecutive
+    // Prefer the chat title; fall back to the working-dir name until one arrives.
+    const label = rt.title ?? rt.info.projectLabel;
+    if (status === rt.lastEmitted && label === rt.lastEmittedLabel) return; // dedupe
     rt.lastEmitted = status;
+    rt.lastEmittedLabel = label;
     this.onEvent?.({
       sessionId: rt.info.sessionId,
       status,
-      projectLabel: rt.info.projectLabel,
+      projectLabel: label,
       updatedAt: rt.lastActiveAt || Date.now(),
     });
   }
