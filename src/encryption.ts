@@ -141,6 +141,30 @@ export function decrypt(key: Uint8Array, variant: 'legacy' | 'dataKey', data: Ui
   }
 }
 
+/**
+ * Derive a NaCl box key pair from an account secret (legacy) or machineKey (dataKey).
+ * Mirrors Happy CLI's deriveContentKeyPair.
+ */
+export function deriveContentKeyPair(secret: Uint8Array): { publicKey: Uint8Array; secretKey: Uint8Array } {
+  const hashedSeed = new Uint8Array(createHash('sha512').update(secret).digest());
+  const secretKey = hashedSeed.slice(0, 32);
+  const keyPair = tweetnacl.box.keyPair.fromSecretKey(secretKey);
+  return { publicKey: keyPair.publicKey, secretKey: keyPair.secretKey };
+}
+
+/**
+ * Decrypt a NaCl box bundle (ephemeralPubKey‖nonce‖ciphertext) using the
+ * recipient's secret key. Returns the plaintext bytes, or null on failure.
+ */
+export function decryptBoxBundle(bundle: Uint8Array, recipientSecretKey: Uint8Array): Uint8Array | null {
+  if (bundle.length < 56) return null;                       // 32 pubkey + 24 nonce + min ciphertext
+  const ephemeralPublicKey = bundle.slice(0, 32);
+  const nonce = bundle.slice(32, 56);
+  const ciphertext = bundle.slice(56);
+  const decrypted = tweetnacl.box.open(ciphertext, nonce, ephemeralPublicKey, recipientSecretKey);
+  return decrypted ? new Uint8Array(decrypted) : null;
+}
+
 export function authChallenge(secret: Uint8Array): {
   challenge: Uint8Array
   publicKey: Uint8Array

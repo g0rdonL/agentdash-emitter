@@ -1,7 +1,9 @@
 import { io, type Socket } from 'socket.io-client';
+import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import type { StatusEvent, WidgetStatus } from './contract';
 import type { PersistedSessionInfo } from './happyFiles';
-import { loadPersistedSessions } from './happyFiles';
+import { happyHomeDir, loadPersistedSessions, projectLabel } from './happyFiles';
 import { deriveStatus } from './status';
 import { decryptAgentState, pendingRequestCount, decryptMetadataTitle } from './decryptWrapper';
 
@@ -20,7 +22,7 @@ interface SessionRuntime {
   active: boolean;
   thinking: boolean;
   pendingRequestCount: number;
-  /** Chat title from decrypted metadata.summary.text; null until one arrives. */
+  /** Chat title from decrypted metadata.summary.text or title file; null until one arrives. */
   title: string | null;
   lastEmitted: WidgetStatus | null;
   lastEmittedLabel: string | null;
@@ -81,6 +83,7 @@ export class HappyAdapter implements StatusAdapter {
   private socket: Socket | null = null;
   private sessions = new Map<string, SessionRuntime>();
   private onEvent: StatusEventCallback | null = null;
+  private labelResolverInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: HappyAdapterOptions) {
     this.serverUrl = opts.serverUrl;
@@ -104,9 +107,17 @@ export class HappyAdapter implements StatusAdapter {
     socket.on('disconnect', () => this.markAllDisconnected());
 
     socket.connect();
+
+    // Periodically try to resolve placeholder labels from sessions.json,
+    // title file, or running processes.
+    this.labelResolverInterval = setInterval(() => this.resolveLabels(), 30_000);
+    // Run once immediately after a short delay to let initial events arrive.
+    setTimeout(() => this.resolveLabels(), 5_000);
   }
 
   stop(): void {
+    if (this.labelResolverInterval) clearInterval(this.labelResolverInterval);
+    this.labelResolverInterval = null;
     for (const s of this.sessions.values()) {
       if (s.debounceTimer) clearTimeout(s.debounceTimer);
     }
@@ -118,14 +129,24 @@ export class HappyAdapter implements StatusAdapter {
     this.onEvent = null;
   }
 
-  private ensureSession(sessionId: string): SessionRuntime | null {
-    // Sessions we have no plaintext metadata for can't get a project label —
-    // re-read sessions.json once in case it appeared after start().
+  private ensureSession(sessionId: string): SessionRuntime {
     let rt = this.sessions.get(sessionId);
     if (rt) return rt;
+    // Try to find the session in sessions.json (may have appeared after start).
     const info = this.loadSessions().find((s) => s.sessionId === sessionId);
-    if (!info) return null;
-    rt = newRuntime(info);
+    if (info) {
+      rt = newRuntime(info);
+    } else {
+      // Session not in sessions.json (file was cleared or session started after
+      // our process). Create a placeholder so we can still track status — we
+      // just won't be able to decrypt the chat title.
+      rt = newRuntime({
+        sessionId,
+        encryptionKey: '',
+        encryptionVariant: 'dataKey',
+        projectLabel: sessionId.slice(0, 12),
+      });
+    }
     this.sessions.set(sessionId, rt);
     return rt;
   }
@@ -135,7 +156,6 @@ export class HappyAdapter implements StatusAdapter {
     const u = update as { type?: string; id?: string; active?: boolean; activeAt?: number; thinking?: boolean };
     if (u.type !== 'activity' || typeof u.id !== 'string') return;
     const rt = this.ensureSession(u.id);
-    if (!rt) return;
     rt.active = !!u.active;
     rt.thinking = !!u.thinking;
     if (typeof u.activeAt === 'number') rt.lastActiveAt = u.activeAt;
@@ -150,13 +170,13 @@ export class HappyAdapter implements StatusAdapter {
     // The session-scoped update payload does not always carry the id; if absent,
     // apply to all known sessions only when there is exactly one (MVP single-account).
     const targets: SessionRuntime[] = sessionId
-      ? [this.ensureSession(sessionId)].filter((x): x is SessionRuntime => x !== null)
+      ? [this.ensureSession(sessionId)]
       : [...this.sessions.values()];
     // An update may carry metadata (chat title) and/or agentState (permissions);
     // handle each independently rather than requiring agentState to be present.
     if (!body.metadata && !body.agentState) return;
     for (const rt of targets) {
-      if (body.metadata?.value != null) {
+      if (body.metadata?.value != null && rt.info.encryptionKey) {
         const title = decryptMetadataTitle(
           rt.info.encryptionKey,
           rt.info.encryptionVariant,
@@ -167,7 +187,7 @@ export class HappyAdapter implements StatusAdapter {
       if (body.agentState) {
         if (body.agentState.value == null) {
           rt.pendingRequestCount = 0;
-        } else {
+        } else if (rt.info.encryptionKey) {
           const decrypted = decryptAgentState(
             rt.info.encryptionKey,
             rt.info.encryptionVariant,
@@ -210,5 +230,97 @@ export class HappyAdapter implements StatusAdapter {
       projectLabel: label,
       updatedAt: rt.lastActiveAt || Date.now(),
     });
+  }
+
+  /**
+   * Periodically re-read sessions.json, title file, and scan processes to
+   * resolve placeholder labels.
+   */
+  private resolveLabels(): void {
+    // 1. Try sessions.json first (may have been repopulated by new sessions).
+    const persisted = this.loadSessions();
+    for (const info of persisted) {
+      const rt = this.sessions.get(info.sessionId);
+      if (rt && !rt.info.encryptionKey) {
+        // Upgrade placeholder with real session info.
+        rt.info = info;
+        console.log(`[adapter] resolved label from sessions.json: ${info.sessionId.slice(0, 12)} → ${info.projectLabel}`);
+        this.scheduleEmit(rt);
+      }
+    }
+
+    // 2. Try session-titles.json (written by PostToolUse hook on change_title).
+    this.resolveFromTitleFile();
+
+    // 3. For remaining placeholders, try to extract CWDs from Happy wrapper processes.
+    const placeholders = [...this.sessions.values()].filter((rt) => !rt.info.encryptionKey && !rt.title);
+    if (placeholders.length === 0) return;
+
+    try {
+      // Find Happy wrapper PIDs and their CWDs.
+      const hookDir = `${process.env.HAPPY_HOME_DIR ?? `${process.env.HOME}/.happy`}/tmp/hooks`;
+      const cwdMap = new Map<number, string>();
+      const files = execSync(`ls ${hookDir}/session-hook-*.json 2>/dev/null`, { encoding: 'utf-8' }).trim().split('\n').filter(Boolean);
+      for (const f of files) {
+        const pid = parseInt(f.match(/session-hook-(\d+)/)?.[1] ?? '0');
+        if (!pid) continue;
+        try {
+          execSync(`kill -0 ${pid}`, { stdio: 'ignore' });
+          const cwd = execSync(`lsof -p ${pid} 2>/dev/null | grep cwd | awk '{print $NF}'`, { encoding: 'utf-8' }).trim();
+          if (cwd) cwdMap.set(pid, cwd);
+        } catch { /* dead process */ }
+      }
+
+      // Assign unmatched CWDs to unmatched placeholders.
+      // This is best-effort — can't perfectly match session IDs to PIDs without
+      // the daemon's internal state, but CWD-based labels are better than truncated IDs.
+      const usedCwds = new Set<string>();
+      for (const rt of this.sessions.values()) {
+        if (rt.info.encryptionKey) usedCwds.add(rt.info.projectLabel);
+      }
+      const availableCwds = [...cwdMap.values()]
+        .map((cwd) => ({ cwd, label: projectLabel(cwd) }))
+        .filter(({ label }) => !usedCwds.has(label));
+
+      let i = 0;
+      for (const rt of placeholders) {
+        if (i >= availableCwds.length) break;
+        const { label } = availableCwds[i++];
+        rt.info = { ...rt.info, projectLabel: label };
+        console.log(`[adapter] resolved label from process: ${rt.info.sessionId.slice(0, 12)} → ${label}`);
+        this.scheduleEmit(rt);
+      }
+    } catch { /* lsof/ls failed — skip this cycle */ }
+  }
+
+  /**
+   * Read chat titles from ~/.happy/session-titles.json (written by PostToolUse hook
+   * when change_title MCP tool is called). Titles are keyed by Happy session ID.
+   */
+  private resolveFromTitleFile(): void {
+    try {
+      const raw = readFileSync(`${happyHomeDir()}/session-titles.json`, 'utf-8');
+      const titles = JSON.parse(raw) as Record<string, { title: string; updatedAt: number }>;
+
+      for (const [sessionId, entry] of Object.entries(titles)) {
+        if (!entry?.title) continue;
+        // Try exact match first, then prefix match.
+        let matched: SessionRuntime | undefined;
+        matched = this.sessions.get(sessionId);
+        if (!matched) {
+          for (const rt of this.sessions.values()) {
+            if (rt.info.sessionId.startsWith(sessionId) || sessionId.startsWith(rt.info.sessionId)) {
+              matched = rt;
+              break;
+            }
+          }
+        }
+        if (matched && matched.title !== entry.title) {
+          matched.title = entry.title;
+          console.log(`[adapter] resolved title from file: ${matched.info.sessionId.slice(0, 12)} → ${entry.title}`);
+          this.scheduleEmit(matched);
+        }
+      }
+    } catch { /* file doesn't exist yet or is malformed — fine */ }
   }
 }
