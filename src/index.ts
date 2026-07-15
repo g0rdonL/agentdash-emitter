@@ -1,6 +1,7 @@
 import { HappyAdapter } from './adapter.js';
 import { BackendSender } from './sender.js';
 import { loadCredentials } from './happyFiles.js';
+import { ClaudePoller } from './claudePoller.js';
 
 const backendUrl = process.env.BACKEND_URL;
 const accountToken = process.env.ACCOUNT_TOKEN;
@@ -27,11 +28,21 @@ adapter.start((event) => {
   console.log(`[emitter] ${event.projectLabel} ${event.sessionId} -> ${event.status}`);
 });
 
-console.log(`[emitter] started; Happy=${happyServerUrl} backend=${backendUrl}`);
+// Standalone Claude Code sessions (not under Happy) — disabled via CLAUDE_POLLER=0.
+const claudePoller = process.env.CLAUDE_POLLER === '0' ? null : new ClaudePoller();
+claudePoller?.start((event) => {
+  sender.sendEvent(event).catch((err) => {
+    console.error(`[emitter] failed to send claude event for ${event.sessionId}:`, err);
+  });
+  console.log(`[emitter/claude] ${event.projectLabel} ${event.sessionId} -> ${event.status}`);
+});
+
+console.log(`[emitter] started; Happy=${happyServerUrl} backend=${backendUrl} claudePoller=${claudePoller ? 'on' : 'off'}`);
 
 const shutdown = () => {
   console.log('[emitter] shutting down');
   adapter.stop();
+  claudePoller?.stop();
   process.exit(0);
 };
 process.on('SIGINT', shutdown);
