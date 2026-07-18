@@ -59,7 +59,7 @@ describe('HappyAdapter', () => {
     socket.emit('ephemeral', { type: 'activity', id: 's1', active: true, activeAt: 1100, thinking: false });
     flushDebounce();
     expect(events.map((e) => e.status)).toEqual(['thinking', 'waiting']);
-    expect(events[0]).toMatchObject({ sessionId: 's1', projectLabel: 'happy' });
+    expect(events[0]).toMatchObject({ sessionId: 's1', projectLabel: '😊 happy' });
   });
 
   it('emits permission_required when a decrypted agentState has pending requests', () => {

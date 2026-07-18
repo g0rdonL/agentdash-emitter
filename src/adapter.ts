@@ -220,7 +220,10 @@ export class HappyAdapter implements StatusAdapter {
       pendingRequestCount: rt.pendingRequestCount,
     });
     // Prefer the chat title; fall back to the working-dir name until one arrives.
-    const label = rt.title ?? rt.info.projectLabel;
+    // '😊 ' prefix marks Happy sessions on the widget (mirrors the paseo
+    // emitter's '⛵ ' convention); standalone Claude sessions (claudePoller)
+    // stay unprefixed.
+    const label = '😊 ' + (rt.title ?? rt.info.projectLabel);
     if (status === rt.lastEmitted && label === rt.lastEmittedLabel) return; // dedupe
     rt.lastEmitted = status;
     rt.lastEmittedLabel = label;
