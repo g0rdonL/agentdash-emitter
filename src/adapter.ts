@@ -62,7 +62,7 @@ function defaultSocketFactory(serverUrl: string, accountToken: string): Socket {
     auth: {
       token: accountToken,
       clientType: 'user-scoped',
-      happyClient: 'agent-status-widget-emitter/0.0.1',
+      happyClient: 'agentdash-emitter/1.0.0',
       appState: 'active',
     },
     transports: ['websocket'],
