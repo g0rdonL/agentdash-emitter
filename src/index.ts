@@ -2,6 +2,12 @@ import { HappyAdapter } from './adapter.js';
 import { BackendSender } from './sender.js';
 import { loadCredentials } from './happyFiles.js';
 import { ClaudePoller } from './claudePoller.js';
+import { McpSource } from './paseoMcp.js';
+import { DiskSource } from './paseoDisk.js';
+import { TransitionTracker } from './paseoTracker.js';
+import { loadConfig as loadPaseoConfig } from './paseoConfig.js';
+import type { StatusEvent } from './contract.js';
+import type { SourceResult } from './paseoTypes.js';
 
 const backendUrl = process.env.BACKEND_URL;
 const accountToken = process.env.ACCOUNT_TOKEN;
@@ -37,12 +43,97 @@ claudePoller?.start((event) => {
   console.log(`[emitter/claude] ${event.projectLabel} ${event.sessionId} -> ${event.status}`);
 });
 
-console.log(`[emitter] started; Happy=${happyServerUrl} backend=${backendUrl} claudePoller=${claudePoller ? 'on' : 'off'}`);
+// ── Paseo agent poller ──────────────────────────────────────────────
+
+let paseoTimer: ReturnType<typeof setTimeout> | null = null;
+let paseoStopped = false;
+const paseoEnabled = process.env.PASEO_POLLER !== '0';
+
+if (paseoEnabled) {
+  const paseoConfig = loadPaseoConfig();
+
+  const mcpSource = new McpSource({
+    baseUrl: paseoConfig.paseoBaseUrl,
+    agentsDir: paseoConfig.paseoAgentsDir,
+  });
+  const diskSource = new DiskSource({ agentsDir: paseoConfig.paseoAgentsDir });
+
+  const tracker = new TransitionTracker({
+    idleTtlMs: paseoConfig.idleTtlMs,
+    healthFailuresMax: paseoConfig.healthFailuresMax,
+  });
+
+  function dispatch(events: StatusEvent[]): void {
+    for (const e of events) {
+      sender.sendEvent(e).catch((err) => {
+        console.error(`[emitter/paseo] failed to send event for ${e.sessionId}:`, err);
+      });
+      console.log(`[emitter/paseo] ${e.projectLabel} ${e.sessionId} -> ${e.status}`);
+    }
+  }
+
+  async function tick(): Promise<void> {
+    let result: SourceResult;
+    try {
+      result = await mcpSource.poll();
+    } catch (err) {
+      console.error('[emitter/paseo] mcp poll threw:', err);
+      result = { ok: false, reason: 'error', detail: String(err) };
+    }
+
+    if (result.ok) {
+      dispatch(tracker.update(result.agents));
+      return;
+    }
+
+    if (result.reason === 'daemon-down') {
+      dispatch(tracker.recordFailure());
+      return;
+    }
+
+    // `auth` or `error` — fall back to disk for this tick.
+    const disk = await diskSource.poll().catch((err) => {
+      console.error('[emitter/paseo] disk fallback poll failed:', err);
+      return null;
+    });
+    if (disk && disk.ok) {
+      dispatch(tracker.update(disk.agents));
+    } else if (disk && !disk.ok) {
+      dispatch(tracker.recordFailure());
+    }
+  }
+
+  async function loop(): Promise<void> {
+    try {
+      await tick();
+    } catch (err) {
+      console.error('[emitter/paseo] tick failed:', err);
+    } finally {
+      if (!paseoStopped) {
+        paseoTimer = setTimeout(loop, paseoConfig.pollIntervalMs);
+      }
+    }
+  }
+
+  void loop();
+
+  console.log(
+    `[emitter] paseoPoller=on; paseo=${paseoConfig.paseoBaseUrl} agentsDir=${paseoConfig.paseoAgentsDir} poll=${paseoConfig.pollIntervalMs}ms idleTtl=${paseoConfig.idleTtlMs}ms failMax=${paseoConfig.healthFailuresMax}`,
+  );
+} else {
+  console.log('[emitter] paseoPoller=off (PASEO_POLLER=0)');
+}
+
+// ────────────────────────────────────────────────────────────────────
+
+console.log(`[emitter] started; Happy=${happyServerUrl} backend=${backendUrl} claudePoller=${claudePoller ? 'on' : 'off'} paseoPoller=${paseoEnabled ? 'on' : 'off'}`);
 
 const shutdown = () => {
   console.log('[emitter] shutting down');
   adapter.stop();
   claudePoller?.stop();
+  paseoStopped = true;
+  if (paseoTimer) clearTimeout(paseoTimer);
   process.exit(0);
 };
 process.on('SIGINT', shutdown);
