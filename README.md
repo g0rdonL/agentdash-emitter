@@ -1,4 +1,4 @@
-# agent-status-widget emitter
+# AgentDash Emitter
 
 Runs on the user's Mac. Reads local Happy session status, derives a coarse
 status (`thinking | waiting | permission_required | disconnected`), and POSTs
