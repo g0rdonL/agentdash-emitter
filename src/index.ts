@@ -2,6 +2,7 @@ import { HappyAdapter } from './adapter.js';
 import { BackendSender } from './sender.js';
 import { loadCredentials } from './happyFiles.js';
 import { ClaudePoller } from './claudePoller.js';
+import { OpencodePoller } from './opencodePoller.js';
 import { McpSource } from './paseoMcp.js';
 import { DiskSource } from './paseoDisk.js';
 import { TransitionTracker } from './paseoTracker.js';
@@ -42,6 +43,21 @@ claudePoller?.start((event) => {
   });
   console.log(`[emitter/claude] ${event.projectLabel} ${event.sessionId} -> ${event.status}`);
 });
+
+// ── OpenCode sessions ───────────────────────────────────────────────
+// Local OpenCode sqlite store — disabled by default (OPENCODE_POLLER_ENABLED=1).
+let opencodePoller: OpencodePoller | null = null;
+if (process.env.OPENCODE_POLLER_ENABLED === '1') {
+  opencodePoller = new OpencodePoller();
+  opencodePoller.start((event) => {
+    sender.sendEvent(event).catch((err) => {
+      console.error(`[emitter/opencode] failed to send event for ${event.sessionId}:`, err);
+    });
+    console.log(`[emitter/opencode] ${event.projectLabel} ${event.sessionId} -> ${event.status}`);
+  });
+} else {
+  console.log('[emitter] opencodePoller=off (OPENCODE_POLLER_ENABLED!=1)');
+}
 
 // ── Paseo agent poller ──────────────────────────────────────────────
 
@@ -126,12 +142,13 @@ if (paseoEnabled) {
 
 // ────────────────────────────────────────────────────────────────────
 
-console.log(`[emitter] started; Happy=${happyServerUrl} backend=${backendUrl} claudePoller=${claudePoller ? 'on' : 'off'} paseoPoller=${paseoEnabled ? 'on' : 'off'}`);
+console.log(`[emitter] started; Happy=${happyServerUrl} backend=${backendUrl} claudePoller=${claudePoller ? 'on' : 'off'} opencodePoller=${opencodePoller ? 'on' : 'off'} paseoPoller=${paseoEnabled ? 'on' : 'off'}`);
 
 const shutdown = () => {
   console.log('[emitter] shutting down');
   adapter.stop();
   claudePoller?.stop();
+  opencodePoller?.stop();
   paseoStopped = true;
   if (paseoTimer) clearTimeout(paseoTimer);
   process.exit(0);
