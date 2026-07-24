@@ -1,5 +1,6 @@
 import { execSync as nodeExecSync } from 'child_process';
 import { existsSync } from 'fs';
+import { createRequire } from 'module';
 import { basename, join } from 'path';
 import { homedir } from 'os';
 import type { StatusEvent, StatusEventMetadata } from './contract.js';
@@ -192,8 +193,12 @@ export class OpencodePoller {
   }
 
   private queryWithNodeSqlite(since: number): SessionRow[] {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
+    // createRequire: plain `require` is undefined under ESM (tsx runs the
+    // emitter as ESM; hit live 2026-07-25 — "ReferenceError: require is not
+    // defined" bypassed the CLI fallback because its message didn't match
+    // the fallback regex).
+    const nodeRequire = createRequire(import.meta.url);
+    const { DatabaseSync } = nodeRequire('node:sqlite') as typeof import('node:sqlite');
     const uri = `file:${this.dbPath}?mode=ro&immutable=1`;
     const db = new DatabaseSync(uri);
     try {
