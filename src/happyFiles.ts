@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import process from "node:process";
 
 // ── Credentials (subset we need: the bearer token + which decrypt variant) ──
 const credentialsSchema = z.object({

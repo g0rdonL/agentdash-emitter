@@ -9,6 +9,7 @@ import { TransitionTracker } from './paseoTracker.js';
 import { loadConfig as loadPaseoConfig } from './paseoConfig.js';
 import type { StatusEvent } from './contract.js';
 import type { SourceResult } from './paseoTypes.js';
+import process from "node:process";
 
 const backendUrl = process.env.BACKEND_URL;
 const accountToken = process.env.ACCOUNT_TOKEN;

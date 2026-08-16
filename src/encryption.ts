@@ -2,6 +2,7 @@
 
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto';
 import tweetnacl from 'tweetnacl';
+import { Buffer } from "node:buffer";
 
 export function encodeBase64(buffer: Uint8Array, variant: 'base64' | 'base64url' = 'base64'): string {
   if (variant === 'base64url') {

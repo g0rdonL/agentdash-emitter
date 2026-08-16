@@ -1,4 +1,5 @@
 import type { AdapterConfig } from './paseoTypes.js';
+import process from "node:process";
 
 const DEFAULT_PASEO_BASE_URL = 'http://127.0.0.1:6767';
 const DEFAULT_POLL_INTERVAL_SEC = 5;

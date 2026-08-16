@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadConfig, expandTilde } from './paseoConfig.js';
+import process from "node:process";
 
 // Save & restore process.env so tests can mutate freely.
 const envSnapshot: Record<string, string | undefined> = {};

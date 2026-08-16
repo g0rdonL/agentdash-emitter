@@ -3,6 +3,7 @@ import { readdirSync, existsSync, statSync, readFileSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
 import type { StatusEvent } from './contract.js';
+import process from "node:process";
 
 /**
  * Polls local Claude Code sessions (~/.claude/projects JSONL layout) and

@@ -6,6 +6,7 @@ import type { PersistedSessionInfo } from './happyFiles';
 import { happyHomeDir, loadPersistedSessions, projectLabel } from './happyFiles';
 import { deriveStatus } from './status';
 import { decryptAgentState, pendingRequestCount, decryptMetadataTitle } from './decryptWrapper';
+import process from "node:process";
 
 export interface StatusEventCallback {
   (event: StatusEvent): void;
