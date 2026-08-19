@@ -1,26 +1,26 @@
-import type { PaseoAgent } from './paseoTypes.js';
-import type { WidgetStatus } from './contract.js';
+import type { PaseoAgent } from "./paseoTypes.js";
+import type { WidgetStatus } from "./contract.js";
 
 /**
  * Attention reasons that map to `permission_required` regardless of lifecycle status.
  * `permission` is the canonical Paseo value; `needs_input` appears in some bundled code.
  */
-const PERMISSION_REASONS = new Set(['permission', 'needs_input']);
+const PERMISSION_REASONS = new Set(["permission", "needs_input"]);
 
 /**
  * Lifecycle statuses considered "active working" → `thinking`.
  * `initializing` is included because an agent that is starting up is effectively busy.
  */
-const THINKING_STATUSES = new Set(['running', 'initializing']);
+const THINKING_STATUSES = new Set(["running", "initializing"]);
 
 /**
  * Lifecycle statuses that map to `disconnected` (terminal or broken),
  * EXCEPT idle which is TTL-gated in the decision table.
  */
-const DISCONNECTED_STATUSES = new Set(['closed', 'error']);
+const DISCONNECTED_STATUSES = new Set(["closed", "error"]);
 
 /** Label prefix so Paseo rows are visually distinct on the widget. */
-const LABEL_PREFIX = '⛵ ';
+const LABEL_PREFIX = "⛵ ";
 
 /** Maximum label length (prefix + name), matching the emitter convention. */
 const LABEL_MAX = 40;
@@ -53,23 +53,23 @@ export function mapAgent(
     agent.attentionReason !== null &&
     PERMISSION_REASONS.has(agent.attentionReason)
   ) {
-    return 'permission_required';
+    return "permission_required";
   }
 
   // 4 (partial). Archived agents are always disconnected, regardless of status.
-  if (agent.archived) return 'disconnected';
+  if (agent.archived) return "disconnected";
 
   // 2. Actively running.
-  if (THINKING_STATUSES.has(agent.status)) return 'thinking';
+  if (THINKING_STATUSES.has(agent.status)) return "thinking";
 
   // 3 & 4 (idle branch). Idle is `waiting` within TTL, `disconnected` past it.
-  if (agent.status === 'idle') {
+  if (agent.status === "idle") {
     const ageMs = nowMs - agent.lastActivityAtMs;
-    return ageMs < idleTtlMs ? 'waiting' : 'disconnected';
+    return ageMs < idleTtlMs ? "waiting" : "disconnected";
   }
 
   // 4 (terminal). closed / error.
-  if (DISCONNECTED_STATUSES.has(agent.status)) return 'disconnected';
+  if (DISCONNECTED_STATUSES.has(agent.status)) return "disconnected";
 
   // 5. Unknown status string — warn once per distinct value, fall back to `waiting`.
   if (!warnedStatuses.has(agent.status)) {
@@ -78,7 +78,7 @@ export function mapAgent(
       `[paseo-emitter] unknown Paseo lifecycle status "${agent.status}"; mapping to waiting`,
     );
   }
-  return 'waiting';
+  return "waiting";
 }
 
 /**
@@ -86,23 +86,22 @@ export function mapAgent(
  * truncated to 40 chars. Matches the emitter's label convention so rows stay compact.
  */
 export function projectLabel(agent: PaseoAgent): string {
-  const name =
-    agent.title && agent.title.length > 0
-      ? agent.title
-      : basename(agent.cwd);
+  const name = agent.title && agent.title.length > 0
+    ? agent.title
+    : basename(agent.cwd);
 
   const full = LABEL_PREFIX + name;
   if (full.length <= LABEL_MAX) return full;
   // Truncate, reserving room for an ellipsis so truncation is visible.
   const keep = LABEL_MAX - 1; // 1 char for the ellipsis
-  return full.slice(0, keep) + '…';
+  return full.slice(0, keep) + "…";
 }
 
 /** Extract the final path segment of a cwd; returns the raw string if it's empty. */
 function basename(cwd: string): string {
-  if (!cwd) return '';
+  if (!cwd) return "";
   // Trim trailing slashes, then take the last segment.
-  const trimmed = cwd.replace(/\/+$/, '');
-  const idx = trimmed.lastIndexOf('/');
+  const trimmed = cwd.replace(/\/+$/, "");
+  const idx = trimmed.lastIndexOf("/");
   return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
 }

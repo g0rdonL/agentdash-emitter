@@ -1,11 +1,19 @@
-import { io, type Socket } from 'socket.io-client';
-import { readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
-import type { StatusEvent, WidgetStatus } from './contract';
-import type { PersistedSessionInfo } from './happyFiles';
-import { happyHomeDir, loadPersistedSessions, projectLabel } from './happyFiles';
-import { deriveStatus } from './status';
-import { decryptAgentState, pendingRequestCount, decryptMetadataTitle } from './decryptWrapper';
+import { io, type Socket } from "socket.io-client";
+import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import type { StatusEvent, WidgetStatus } from "./contract";
+import type { PersistedSessionInfo } from "./happyFiles";
+import {
+  happyHomeDir,
+  loadPersistedSessions,
+  projectLabel,
+} from "./happyFiles";
+import { deriveStatus } from "./status";
+import {
+  decryptAgentState,
+  decryptMetadataTitle,
+  pendingRequestCount,
+} from "./decryptWrapper";
 import process from "node:process";
 
 export interface StatusEventCallback {
@@ -59,14 +67,14 @@ export interface HappyAdapterOptions {
 
 function defaultSocketFactory(serverUrl: string, accountToken: string): Socket {
   return io(serverUrl, {
-    path: '/v1/updates',
+    path: "/v1/updates",
     auth: {
       token: accountToken,
-      clientType: 'user-scoped',
-      happyClient: 'agentdash-emitter/1.0.0',
-      appState: 'active',
+      clientType: "user-scoped",
+      happyClient: "agentdash-emitter/1.0.0",
+      appState: "active",
     },
-    transports: ['websocket'],
+    transports: ["websocket"],
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
@@ -78,7 +86,10 @@ export class HappyAdapter implements StatusAdapter {
   private readonly serverUrl: string;
   private readonly accountToken: string;
   private readonly loadSessions: () => PersistedSessionInfo[];
-  private readonly socketFactory: (serverUrl: string, accountToken: string) => Socket;
+  private readonly socketFactory: (
+    serverUrl: string,
+    accountToken: string,
+  ) => Socket;
   private readonly debounceMs: number;
 
   private socket: Socket | null = null;
@@ -103,15 +114,18 @@ export class HappyAdapter implements StatusAdapter {
     const socket = this.socketFactory(this.serverUrl, this.accountToken);
     this.socket = socket;
 
-    socket.on('ephemeral', (update: unknown) => this.handleEphemeral(update));
-    socket.on('update', (data: unknown) => this.handleUpdate(data));
-    socket.on('disconnect', () => this.markAllDisconnected());
+    socket.on("ephemeral", (update: unknown) => this.handleEphemeral(update));
+    socket.on("update", (data: unknown) => this.handleUpdate(data));
+    socket.on("disconnect", () => this.markAllDisconnected());
 
     socket.connect();
 
     // Periodically try to resolve placeholder labels from sessions.json,
     // title file, or running processes.
-    this.labelResolverInterval = setInterval(() => this.resolveLabels(), 30_000);
+    this.labelResolverInterval = setInterval(
+      () => this.resolveLabels(),
+      30_000,
+    );
     // Run once immediately after a short delay to let initial events arrive.
     setTimeout(() => this.resolveLabels(), 5_000);
   }
@@ -143,8 +157,8 @@ export class HappyAdapter implements StatusAdapter {
       // just won't be able to decrypt the chat title.
       rt = newRuntime({
         sessionId,
-        encryptionKey: '',
-        encryptionVariant: 'dataKey',
+        encryptionKey: "",
+        encryptionVariant: "dataKey",
         projectLabel: sessionId.slice(0, 12),
       });
     }
@@ -153,20 +167,26 @@ export class HappyAdapter implements StatusAdapter {
   }
 
   private handleEphemeral(update: unknown): void {
-    if (!update || typeof update !== 'object') return;
-    const u = update as { type?: string; id?: string; active?: boolean; activeAt?: number; thinking?: boolean };
-    if (u.type !== 'activity' || typeof u.id !== 'string') return;
+    if (!update || typeof update !== "object") return;
+    const u = update as {
+      type?: string;
+      id?: string;
+      active?: boolean;
+      activeAt?: number;
+      thinking?: boolean;
+    };
+    if (u.type !== "activity" || typeof u.id !== "string") return;
     const rt = this.ensureSession(u.id);
     rt.active = !!u.active;
     rt.thinking = !!u.thinking;
-    if (typeof u.activeAt === 'number') rt.lastActiveAt = u.activeAt;
+    if (typeof u.activeAt === "number") rt.lastActiveAt = u.activeAt;
     this.scheduleEmit(rt);
   }
 
   private handleUpdate(data: unknown): void {
-    if (!data || typeof data !== 'object') return;
+    if (!data || typeof data !== "object") return;
     const body = (data as { body?: any }).body;
-    if (!body || body.t !== 'update-session') return;
+    if (!body || body.t !== "update-session") return;
     const sessionId: string | undefined = body.sid ?? body.sessionId ?? body.id;
     // The session-scoped update payload does not always carry the id; if absent,
     // apply to all known sessions only when there is exactly one (MVP single-account).
@@ -224,7 +244,7 @@ export class HappyAdapter implements StatusAdapter {
     // '😊 ' prefix marks Happy sessions on the widget (mirrors the paseo
     // emitter's '⛵ ' convention); standalone Claude sessions (claudePoller)
     // stay unprefixed.
-    const label = '😊 ' + (rt.title ?? rt.info.projectLabel);
+    const label = "😊 " + (rt.title ?? rt.info.projectLabel);
     if (status === rt.lastEmitted && label === rt.lastEmittedLabel) return; // dedupe
     rt.lastEmitted = status;
     rt.lastEmittedLabel = label;
@@ -248,7 +268,11 @@ export class HappyAdapter implements StatusAdapter {
       if (rt && !rt.info.encryptionKey) {
         // Upgrade placeholder with real session info.
         rt.info = info;
-        console.log(`[adapter] resolved label from sessions.json: ${info.sessionId.slice(0, 12)} → ${info.projectLabel}`);
+        console.log(
+          `[adapter] resolved label from sessions.json: ${
+            info.sessionId.slice(0, 12)
+          } → ${info.projectLabel}`,
+        );
         this.scheduleEmit(rt);
       }
     }
@@ -257,20 +281,29 @@ export class HappyAdapter implements StatusAdapter {
     this.resolveFromTitleFile();
 
     // 3. For remaining placeholders, try to extract CWDs from Happy wrapper processes.
-    const placeholders = [...this.sessions.values()].filter((rt) => !rt.info.encryptionKey && !rt.title);
+    const placeholders = [...this.sessions.values()].filter((rt) =>
+      !rt.info.encryptionKey && !rt.title
+    );
     if (placeholders.length === 0) return;
 
     try {
       // Find Happy wrapper PIDs and their CWDs.
-      const hookDir = `${process.env.HAPPY_HOME_DIR ?? `${process.env.HOME}/.happy`}/tmp/hooks`;
+      const hookDir = `${
+        process.env.HAPPY_HOME_DIR ?? `${process.env.HOME}/.happy`
+      }/tmp/hooks`;
       const cwdMap = new Map<number, string>();
-      const files = execSync(`ls ${hookDir}/session-hook-*.json 2>/dev/null`, { encoding: 'utf-8' }).trim().split('\n').filter(Boolean);
+      const files = execSync(`ls ${hookDir}/session-hook-*.json 2>/dev/null`, {
+        encoding: "utf-8",
+      }).trim().split("\n").filter(Boolean);
       for (const f of files) {
-        const pid = parseInt(f.match(/session-hook-(\d+)/)?.[1] ?? '0');
+        const pid = parseInt(f.match(/session-hook-(\d+)/)?.[1] ?? "0");
         if (!pid) continue;
         try {
-          execSync(`kill -0 ${pid}`, { stdio: 'ignore' });
-          const cwd = execSync(`lsof -p ${pid} 2>/dev/null | grep cwd | awk '{print $NF}'`, { encoding: 'utf-8' }).trim();
+          execSync(`kill -0 ${pid}`, { stdio: "ignore" });
+          const cwd = execSync(
+            `lsof -p ${pid} 2>/dev/null | grep cwd | awk '{print $NF}'`,
+            { encoding: "utf-8" },
+          ).trim();
           if (cwd) cwdMap.set(pid, cwd);
         } catch { /* dead process */ }
       }
@@ -291,7 +324,11 @@ export class HappyAdapter implements StatusAdapter {
         if (i >= availableCwds.length) break;
         const { label } = availableCwds[i++];
         rt.info = { ...rt.info, projectLabel: label };
-        console.log(`[adapter] resolved label from process: ${rt.info.sessionId.slice(0, 12)} → ${label}`);
+        console.log(
+          `[adapter] resolved label from process: ${
+            rt.info.sessionId.slice(0, 12)
+          } → ${label}`,
+        );
         this.scheduleEmit(rt);
       }
     } catch { /* lsof/ls failed — skip this cycle */ }
@@ -303,8 +340,14 @@ export class HappyAdapter implements StatusAdapter {
    */
   private resolveFromTitleFile(): void {
     try {
-      const raw = readFileSync(`${happyHomeDir()}/session-titles.json`, 'utf-8');
-      const titles = JSON.parse(raw) as Record<string, { title: string; updatedAt: number }>;
+      const raw = readFileSync(
+        `${happyHomeDir()}/session-titles.json`,
+        "utf-8",
+      );
+      const titles = JSON.parse(raw) as Record<
+        string,
+        { title: string; updatedAt: number }
+      >;
 
       for (const [sessionId, entry] of Object.entries(titles)) {
         if (!entry?.title) continue;
@@ -313,7 +356,10 @@ export class HappyAdapter implements StatusAdapter {
         matched = this.sessions.get(sessionId);
         if (!matched) {
           for (const rt of this.sessions.values()) {
-            if (rt.info.sessionId.startsWith(sessionId) || sessionId.startsWith(rt.info.sessionId)) {
+            if (
+              rt.info.sessionId.startsWith(sessionId) ||
+              sessionId.startsWith(rt.info.sessionId)
+            ) {
               matched = rt;
               break;
             }
@@ -321,7 +367,11 @@ export class HappyAdapter implements StatusAdapter {
         }
         if (matched && matched.title !== entry.title) {
           matched.title = entry.title;
-          console.log(`[adapter] resolved title from file: ${matched.info.sessionId.slice(0, 12)} → ${entry.title}`);
+          console.log(
+            `[adapter] resolved title from file: ${
+              matched.info.sessionId.slice(0, 12)
+            } → ${entry.title}`,
+          );
           this.scheduleEmit(matched);
         }
       }

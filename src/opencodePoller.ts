@@ -1,9 +1,9 @@
-import { execSync as nodeExecSync } from 'child_process';
-import { existsSync } from 'fs';
-import { createRequire } from 'module';
-import { basename, join } from 'path';
-import { homedir } from 'os';
-import type { StatusEvent, StatusEventMetadata } from './contract.js';
+import { execSync as nodeExecSync } from "child_process";
+import { existsSync } from "fs";
+import { createRequire } from "module";
+import { basename, join } from "path";
+import { homedir } from "os";
+import type { StatusEvent, StatusEventMetadata } from "./contract.js";
 
 /**
  * Polls the local OpenCode sqlite database
@@ -49,12 +49,12 @@ interface SessionRow {
 }
 
 interface KnownSession {
-  status: 'thinking' | 'waiting';
+  status: "thinking" | "waiting";
   projectLabel: string;
 }
 
-const SESSION_PREFIX = 'opencode:';
-const DEFAULT_LABEL = 'opencode';
+const SESSION_PREFIX = "opencode:";
+const DEFAULT_LABEL = "opencode";
 
 export class OpencodePoller {
   private readonly dbPath: string;
@@ -69,13 +69,14 @@ export class OpencodePoller {
   private lockedLogged = false;
 
   constructor(opts: OpencodePollerOptions = {}) {
-    this.dbPath = opts.dbPath ?? join(homedir(), '.local', 'share', 'opencode', 'opencode.db');
+    this.dbPath = opts.dbPath ??
+      join(homedir(), ".local", "share", "opencode", "opencode.db");
     this.intervalMs = opts.intervalMs ?? 60_000;
     this.activeThresholdMs = opts.activeThresholdMs ?? 120_000;
     this.workingThresholdMs = opts.workingThresholdMs ?? 15_000;
     this.nowFn = opts.nowFn ?? Date.now;
-    this.execFn =
-      opts.execFn ?? ((cmd: string) => nodeExecSync(cmd, { encoding: 'utf-8' }) as string);
+    this.execFn = opts.execFn ??
+      ((cmd: string) => nodeExecSync(cmd, { encoding: "utf-8" }) as string);
   }
 
   start(onEvent: (event: StatusEvent) => void): void {
@@ -83,7 +84,7 @@ export class OpencodePoller {
       try {
         this.poll(onEvent);
       } catch (err) {
-        console.error('[opencode-poller] poll failed:', err);
+        console.error("[opencode-poller] poll failed:", err);
       }
     };
     tick();
@@ -112,12 +113,21 @@ export class OpencodePoller {
     for (const row of rows) {
       const sessionId = SESSION_PREFIX + row.id;
       const projectLabel = this.titleFor(row);
-      const status: 'thinking' | 'waiting' =
-        now - row.time_updated < this.workingThresholdMs ? 'thinking' : 'waiting';
+      const status: "thinking" | "waiting" =
+        now - row.time_updated < this.workingThresholdMs
+          ? "thinking"
+          : "waiting";
       const metadata = this.metadataFor(row);
       const prev = this.known.get(sessionId);
-      if (!prev || prev.status !== status || prev.projectLabel !== projectLabel) {
-        const event: StatusEvent = { sessionId, status, projectLabel, updatedAt: now };
+      if (
+        !prev || prev.status !== status || prev.projectLabel !== projectLabel
+      ) {
+        const event: StatusEvent = {
+          sessionId,
+          status,
+          projectLabel,
+          updatedAt: now,
+        };
         if (metadata) event.metadata = metadata;
         onEvent(event);
       }
@@ -128,7 +138,7 @@ export class OpencodePoller {
       if (!live.has(sessionId)) {
         onEvent({
           sessionId,
-          status: 'disconnected',
+          status: "disconnected",
           projectLabel: s.projectLabel,
           updatedAt: now,
         });
@@ -147,7 +157,9 @@ export class OpencodePoller {
     if (!row.model) return undefined;
     try {
       const parsed = JSON.parse(row.model) as { id?: unknown };
-      if (typeof parsed?.id === 'string' && parsed.id) return { modelId: parsed.id };
+      if (typeof parsed?.id === "string" && parsed.id) {
+        return { modelId: parsed.id };
+      }
     } catch {
       /* malformed model json — ignore */
     }
@@ -156,24 +168,28 @@ export class OpencodePoller {
 
   private handleDbError(err: unknown): void {
     const msg = err instanceof Error ? err.message : String(err);
-    const dbMissing =
-      !existsSync(this.dbPath) ||
-      /no such file|SQLITE_CANTOPEN|cannot open|does not exist|unable to open/i.test(msg);
+    const dbMissing = !existsSync(this.dbPath) ||
+      /no such file|SQLITE_CANTOPEN|cannot open|does not exist|unable to open/i
+        .test(msg);
     if (dbMissing) {
       if (!this.missingLogged) {
-        console.error(`[opencode-poller] db missing at ${this.dbPath} — will keep polling`);
+        console.error(
+          `[opencode-poller] db missing at ${this.dbPath} — will keep polling`,
+        );
         this.missingLogged = true;
       }
       return;
     }
     if (/locked|busy|SQLITE_BUSY|SQLITE_LOCKED|database is locked/i.test(msg)) {
       if (!this.lockedLogged) {
-        console.error(`[opencode-poller] db locked at ${this.dbPath} — will keep polling`);
+        console.error(
+          `[opencode-poller] db locked at ${this.dbPath} — will keep polling`,
+        );
         this.lockedLogged = true;
       }
       return;
     }
-    console.error('[opencode-poller] unexpected db error:', err);
+    console.error("[opencode-poller] unexpected db error:", err);
   }
 
   /** Query all active sessions (time_updated >= now - activeThresholdMs). */
@@ -184,7 +200,8 @@ export class OpencodePoller {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (
-        /Cannot find module|No such module|is not a function|not available|experimental/i.test(msg)
+        /Cannot find module|No such module|is not a function|not available|experimental/i
+          .test(msg)
       ) {
         return this.queryWithSqliteCli(since);
       }
@@ -198,13 +215,15 @@ export class OpencodePoller {
     // defined" bypassed the CLI fallback because its message didn't match
     // the fallback regex).
     const nodeRequire = createRequire(import.meta.url);
-    const { DatabaseSync } = nodeRequire('node:sqlite') as typeof import('node:sqlite');
+    const { DatabaseSync } = nodeRequire(
+      "node:sqlite",
+    ) as typeof import("node:sqlite");
     const uri = `file:${this.dbPath}?mode=ro&immutable=1`;
     const db = new DatabaseSync(uri);
     try {
       const stmt = db.prepare(
-        'SELECT id, title, directory, agent, model, cost, time_created, time_updated ' +
-          'FROM session WHERE time_updated >= ?',
+        "SELECT id, title, directory, agent, model, cost, time_created, time_updated " +
+          "FROM session WHERE time_updated >= ?",
       );
       return stmt.all(since) as unknown[] as SessionRow[];
     } finally {
@@ -215,10 +234,10 @@ export class OpencodePoller {
   private queryWithSqliteCli(since: number): SessionRow[] {
     const escPath = this.dbPath.replace(/'/g, "'\\''");
     const sql =
-      'SELECT id, title, directory, agent, model, cost, time_created, time_updated ' +
-      'FROM session WHERE time_updated >= ' +
+      "SELECT id, title, directory, agent, model, cost, time_created, time_updated " +
+      "FROM session WHERE time_updated >= " +
       Number(since) +
-      ';';
+      ";";
     const escapedSql = sql.replace(/'/g, "'\\''");
     const cmd = `sqlite3 -readonly '${escPath}' -json '${escapedSql}'`;
     const out = this.execFn(cmd).trim();

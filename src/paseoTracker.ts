@@ -1,6 +1,6 @@
-import type { PaseoAgent } from './paseoTypes.js';
-import type { StatusEvent, WidgetStatus } from './contract.js';
-import { mapAgent, projectLabel } from './paseoMapping.js';
+import type { PaseoAgent } from "./paseoTypes.js";
+import type { StatusEvent, WidgetStatus } from "./contract.js";
+import { mapAgent, projectLabel } from "./paseoMapping.js";
 
 /**
  * Tracked state for a session we have previously emitted an event for.
@@ -44,8 +44,10 @@ export class TransitionTracker {
   private disconnectedAll = false;
 
   constructor(opts: TransitionTrackerOptions) {
-    if (opts.idleTtlMs <= 0) throw new Error('idleTtlMs must be > 0');
-    if (opts.healthFailuresMax <= 0) throw new Error('healthFailuresMax must be > 0');
+    if (opts.idleTtlMs <= 0) throw new Error("idleTtlMs must be > 0");
+    if (opts.healthFailuresMax <= 0) {
+      throw new Error("healthFailuresMax must be > 0");
+    }
     this.idleTtlMs = opts.idleTtlMs;
     this.healthFailuresMax = opts.healthFailuresMax;
     this.nowFn = opts.nowFn ?? (() => Date.now());
@@ -79,7 +81,7 @@ export class TransitionTracker {
 
       const tracked = this.sessions.get(a.id);
 
-      if (status === 'disconnected') {
+      if (status === "disconnected") {
         // Never emit `disconnected` for a session we have not previously tracked
         // (SPEC.md: disconnected is only for previously-tracked sessions). A
         // first-seen closed/error/archived/idle-past-TTL agent is already gone —
@@ -94,12 +96,12 @@ export class TransitionTracker {
         // the absent-session branch below recognizes it as already disconnected.
         // A later transition to an active status emits a fresh event.
         if (
-          tracked.lastEmitted === 'disconnected' &&
+          tracked.lastEmitted === "disconnected" &&
           tracked.lastEmittedLabel === label
         ) {
           continue;
         }
-        events.push(this.emit(a.id, 'disconnected', label, nowMs));
+        events.push(this.emit(a.id, "disconnected", label, nowMs));
         continue;
       }
 
@@ -120,10 +122,10 @@ export class TransitionTracker {
     for (const id of [...this.sessions.keys()]) {
       if (!seen.has(id)) {
         const tracked = this.sessions.get(id)!;
-        if (tracked.lastEmitted !== 'disconnected') {
+        if (tracked.lastEmitted !== "disconnected") {
           events.push({
             sessionId: `paseo:${id}`,
-            status: 'disconnected',
+            status: "disconnected",
             // Use the last known label so the widget can match the row to remove.
             projectLabel: tracked.lastEmittedLabel ?? `paseo:${id}`,
             updatedAt: nowMs,
@@ -158,10 +160,10 @@ export class TransitionTracker {
     const nowMs = this.nowFn();
     const events: StatusEvent[] = [];
     for (const [id, tracked] of this.sessions) {
-      if (tracked.lastEmitted === 'disconnected') continue;
+      if (tracked.lastEmitted === "disconnected") continue;
       events.push({
         sessionId: `paseo:${id}`,
-        status: 'disconnected',
+        status: "disconnected",
         projectLabel: tracked.lastEmittedLabel ?? `paseo:${id}`,
         updatedAt: nowMs,
       });

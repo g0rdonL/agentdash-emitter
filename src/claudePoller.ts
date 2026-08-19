@@ -1,8 +1,8 @@
-import { execSync as nodeExecSync } from 'child_process';
-import { readdirSync, existsSync, statSync, readFileSync } from 'fs';
-import { join, basename } from 'path';
-import { homedir } from 'os';
-import type { StatusEvent } from './contract.js';
+import { execSync as nodeExecSync } from "child_process";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { basename, join } from "path";
+import { homedir } from "os";
+import type { StatusEvent } from "./contract.js";
 import process from "node:process";
 
 /**
@@ -24,7 +24,7 @@ import process from "node:process";
  */
 
 export function encodeCwd(cwd: string): string {
-  return String(cwd).replace(/[/.]/g, '-');
+  return String(cwd).replace(/[/.]/g, "-");
 }
 
 export interface ClaudePollerOptions {
@@ -50,10 +50,10 @@ export class ClaudePoller {
   private known = new Map<string, LiveSession>();
 
   constructor(opts: ClaudePollerOptions = {}) {
-    this.claudeDir = opts.claudeDir ?? join(homedir(), '.claude');
+    this.claudeDir = opts.claudeDir ?? join(homedir(), ".claude");
     this.intervalMs = opts.intervalMs ?? 60_000;
-    this.execFn =
-      opts.execFn ?? ((cmd: string) => nodeExecSync(cmd, { encoding: 'utf-8' }) as string);
+    this.execFn = opts.execFn ??
+      ((cmd: string) => nodeExecSync(cmd, { encoding: "utf-8" }) as string);
     this.nowFn = opts.nowFn ?? Date.now;
   }
 
@@ -62,7 +62,7 @@ export class ClaudePoller {
       try {
         this.poll(onEvent);
       } catch (err) {
-        console.error('[claude-poller] poll failed:', err);
+        console.error("[claude-poller] poll failed:", err);
       }
     };
     tick();
@@ -84,7 +84,7 @@ export class ClaudePoller {
       if (!prev) {
         onEvent({
           sessionId,
-          status: 'thinking',
+          status: "thinking",
           projectLabel: basename(s.cwd) || s.cwd,
           updatedAt: now,
         });
@@ -96,7 +96,7 @@ export class ClaudePoller {
       if (!live.has(sessionId)) {
         onEvent({
           sessionId,
-          status: 'disconnected',
+          status: "disconnected",
           projectLabel: basename(s.cwd) || s.cwd,
           updatedAt: now,
         });
@@ -125,7 +125,7 @@ export class ClaudePoller {
     try {
       pids = this.execFn("pgrep -x 'claude'")
         .trim()
-        .split('\n')
+        .split("\n")
         .filter(Boolean)
         .map((p) => parseInt(p, 10))
         .filter((p) => Number.isFinite(p) && p !== process.pid);
@@ -149,7 +149,7 @@ export class ClaudePoller {
       return new Set(
         this.execFn("pgrep -f 'happy'")
           .trim()
-          .split('\n')
+          .split("\n")
           .filter(Boolean)
           .map((p) => parseInt(p, 10))
           .filter(Number.isFinite),
@@ -178,9 +178,11 @@ export class ClaudePoller {
 
   private cwdOf(pid: number): string | null {
     try {
-      const cwd = this.execFn(`lsof -a -d cwd -p ${pid} -Fn 2>/dev/null | grep '^n' | head -1`)
+      const cwd = this.execFn(
+        `lsof -a -d cwd -p ${pid} -Fn 2>/dev/null | grep '^n' | head -1`,
+      )
         .trim()
-        .replace(/^n/, '');
+        .replace(/^n/, "");
       return cwd || null;
     } catch {
       return null;
@@ -192,7 +194,7 @@ export class ClaudePoller {
    * the process cwd (forward-encoded) or whose stored cwd field matches.
    */
   private sessionForCwd(cwd: string): string | null {
-    const projectsDir = join(this.claudeDir, 'projects');
+    const projectsDir = join(this.claudeDir, "projects");
     if (!existsSync(projectsDir)) return null;
 
     const encoded = encodeCwd(cwd);
@@ -210,7 +212,7 @@ export class ClaudePoller {
       const dirPath = join(projectsDir, dir);
       let files: string[];
       try {
-        files = readdirSync(dirPath).filter((f) => f.endsWith('.jsonl'));
+        files = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
       } catch {
         continue;
       }
@@ -224,16 +226,22 @@ export class ClaudePoller {
         }
         if (best && mtime <= best.mtime) continue;
 
-        let sessionId = file.replace(/\.jsonl$/, '');
+        let sessionId = file.replace(/\.jsonl$/, "");
         // Prefer sessionId + cwd from the JSONL data when present.
         try {
-          const lines = readFileSync(filePath, 'utf-8').split('\n').filter(Boolean);
-          for (let i = lines.length - 1; i >= 0 && i >= lines.length - 20; i--) {
+          const lines = readFileSync(filePath, "utf-8").split("\n").filter(
+            Boolean,
+          );
+          for (
+            let i = lines.length - 1;
+            i >= 0 && i >= lines.length - 20;
+            i--
+          ) {
             try {
               const d = JSON.parse(lines[i]);
               if (d.cwd && d.cwd !== cwd) {
                 // Encoded dir collided with a different real path — skip file.
-                sessionId = '';
+                sessionId = "";
               }
               if (d.cwd) break;
             } catch {

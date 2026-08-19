@@ -1,23 +1,24 @@
-import { HappyAdapter } from './adapter.js';
-import { BackendSender } from './sender.js';
-import { loadCredentials } from './happyFiles.js';
-import { ClaudePoller } from './claudePoller.js';
-import { OpencodePoller } from './opencodePoller.js';
-import { McpSource } from './paseoMcp.js';
-import { DiskSource } from './paseoDisk.js';
-import { TransitionTracker } from './paseoTracker.js';
-import { loadConfig as loadPaseoConfig } from './paseoConfig.js';
-import type { StatusEvent } from './contract.js';
-import type { SourceResult } from './paseoTypes.js';
+import { HappyAdapter } from "./adapter.js";
+import { BackendSender } from "./sender.js";
+import { loadCredentials } from "./happyFiles.js";
+import { ClaudePoller } from "./claudePoller.js";
+import { OpencodePoller } from "./opencodePoller.js";
+import { McpSource } from "./paseoMcp.js";
+import { DiskSource } from "./paseoDisk.js";
+import { TransitionTracker } from "./paseoTracker.js";
+import { loadConfig as loadPaseoConfig } from "./paseoConfig.js";
+import type { StatusEvent } from "./contract.js";
+import type { SourceResult } from "./paseoTypes.js";
 import process from "node:process";
 
 const backendUrl = process.env.BACKEND_URL;
 const accountToken = process.env.ACCOUNT_TOKEN;
 if (!backendUrl || !accountToken) {
-  console.error('BACKEND_URL and ACCOUNT_TOKEN are required');
+  console.error("BACKEND_URL and ACCOUNT_TOKEN are required");
   process.exit(1);
 }
-const happyServerUrl = process.env.HAPPY_SERVER_URL ?? 'https://api.cluster-fluster.com';
+const happyServerUrl = process.env.HAPPY_SERVER_URL ??
+  "https://api.cluster-fluster.com";
 
 // The socket auth uses the user's OWN Happy token from ~/.happy/access.key.
 const happyToken = loadCredentials().token;
@@ -31,40 +32,57 @@ const adapter = new HappyAdapter({
 
 adapter.start((event) => {
   sender.sendEvent(event).catch((err) => {
-    console.error(`[emitter] failed to send event for ${event.sessionId}:`, err);
+    console.error(
+      `[emitter] failed to send event for ${event.sessionId}:`,
+      err,
+    );
   });
-  console.log(`[emitter] ${event.projectLabel} ${event.sessionId} -> ${event.status}`);
+  console.log(
+    `[emitter] ${event.projectLabel} ${event.sessionId} -> ${event.status}`,
+  );
 });
 
 // Standalone Claude Code sessions (not under Happy) — disabled via CLAUDE_POLLER=0.
-const claudePoller = process.env.CLAUDE_POLLER === '0' ? null : new ClaudePoller();
+const claudePoller = process.env.CLAUDE_POLLER === "0"
+  ? null
+  : new ClaudePoller();
 claudePoller?.start((event) => {
   sender.sendEvent(event).catch((err) => {
-    console.error(`[emitter] failed to send claude event for ${event.sessionId}:`, err);
+    console.error(
+      `[emitter] failed to send claude event for ${event.sessionId}:`,
+      err,
+    );
   });
-  console.log(`[emitter/claude] ${event.projectLabel} ${event.sessionId} -> ${event.status}`);
+  console.log(
+    `[emitter/claude] ${event.projectLabel} ${event.sessionId} -> ${event.status}`,
+  );
 });
 
 // ── OpenCode sessions ───────────────────────────────────────────────
 // Local OpenCode sqlite store — disabled by default (OPENCODE_POLLER_ENABLED=1).
 let opencodePoller: OpencodePoller | null = null;
-if (process.env.OPENCODE_POLLER_ENABLED === '1') {
+if (process.env.OPENCODE_POLLER_ENABLED === "1") {
   opencodePoller = new OpencodePoller();
   opencodePoller.start((event) => {
     sender.sendEvent(event).catch((err) => {
-      console.error(`[emitter/opencode] failed to send event for ${event.sessionId}:`, err);
+      console.error(
+        `[emitter/opencode] failed to send event for ${event.sessionId}:`,
+        err,
+      );
     });
-    console.log(`[emitter/opencode] ${event.projectLabel} ${event.sessionId} -> ${event.status}`);
+    console.log(
+      `[emitter/opencode] ${event.projectLabel} ${event.sessionId} -> ${event.status}`,
+    );
   });
 } else {
-  console.log('[emitter] opencodePoller=off (OPENCODE_POLLER_ENABLED!=1)');
+  console.log("[emitter] opencodePoller=off (OPENCODE_POLLER_ENABLED!=1)");
 }
 
 // ── Paseo agent poller ──────────────────────────────────────────────
 
 let paseoTimer: ReturnType<typeof setTimeout> | null = null;
 let paseoStopped = false;
-const paseoEnabled = process.env.PASEO_POLLER !== '0';
+const paseoEnabled = process.env.PASEO_POLLER !== "0";
 
 if (paseoEnabled) {
   const paseoConfig = loadPaseoConfig();
@@ -83,9 +101,14 @@ if (paseoEnabled) {
   function dispatch(events: StatusEvent[]): void {
     for (const e of events) {
       sender.sendEvent(e).catch((err) => {
-        console.error(`[emitter/paseo] failed to send event for ${e.sessionId}:`, err);
+        console.error(
+          `[emitter/paseo] failed to send event for ${e.sessionId}:`,
+          err,
+        );
       });
-      console.log(`[emitter/paseo] ${e.projectLabel} ${e.sessionId} -> ${e.status}`);
+      console.log(
+        `[emitter/paseo] ${e.projectLabel} ${e.sessionId} -> ${e.status}`,
+      );
     }
   }
 
@@ -94,8 +117,8 @@ if (paseoEnabled) {
     try {
       result = await mcpSource.poll();
     } catch (err) {
-      console.error('[emitter/paseo] mcp poll threw:', err);
-      result = { ok: false, reason: 'error', detail: String(err) };
+      console.error("[emitter/paseo] mcp poll threw:", err);
+      result = { ok: false, reason: "error", detail: String(err) };
     }
 
     if (result.ok) {
@@ -103,14 +126,14 @@ if (paseoEnabled) {
       return;
     }
 
-    if (result.reason === 'daemon-down') {
+    if (result.reason === "daemon-down") {
       dispatch(tracker.recordFailure());
       return;
     }
 
     // `auth` or `error` — fall back to disk for this tick.
     const disk = await diskSource.poll().catch((err) => {
-      console.error('[emitter/paseo] disk fallback poll failed:', err);
+      console.error("[emitter/paseo] disk fallback poll failed:", err);
       return null;
     });
     if (disk && disk.ok) {
@@ -124,7 +147,7 @@ if (paseoEnabled) {
     try {
       await tick();
     } catch (err) {
-      console.error('[emitter/paseo] tick failed:', err);
+      console.error("[emitter/paseo] tick failed:", err);
     } finally {
       if (!paseoStopped) {
         paseoTimer = setTimeout(loop, paseoConfig.pollIntervalMs);
@@ -138,15 +161,21 @@ if (paseoEnabled) {
     `[emitter] paseoPoller=on; paseo=${paseoConfig.paseoBaseUrl} agentsDir=${paseoConfig.paseoAgentsDir} poll=${paseoConfig.pollIntervalMs}ms idleTtl=${paseoConfig.idleTtlMs}ms failMax=${paseoConfig.healthFailuresMax}`,
   );
 } else {
-  console.log('[emitter] paseoPoller=off (PASEO_POLLER=0)');
+  console.log("[emitter] paseoPoller=off (PASEO_POLLER=0)");
 }
 
 // ────────────────────────────────────────────────────────────────────
 
-console.log(`[emitter] started; Happy=${happyServerUrl} backend=${backendUrl} claudePoller=${claudePoller ? 'on' : 'off'} opencodePoller=${opencodePoller ? 'on' : 'off'} paseoPoller=${paseoEnabled ? 'on' : 'off'}`);
+console.log(
+  `[emitter] started; Happy=${happyServerUrl} backend=${backendUrl} claudePoller=${
+    claudePoller ? "on" : "off"
+  } opencodePoller=${opencodePoller ? "on" : "off"} paseoPoller=${
+    paseoEnabled ? "on" : "off"
+  }`,
+);
 
 const shutdown = () => {
-  console.log('[emitter] shutting down');
+  console.log("[emitter] shutting down");
   adapter.stop();
   claudePoller?.stop();
   opencodePoller?.stop();
@@ -154,5 +183,5 @@ const shutdown = () => {
   if (paseoTimer) clearTimeout(paseoTimer);
   process.exit(0);
 };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

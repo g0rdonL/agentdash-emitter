@@ -1,6 +1,6 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import type { AgentSource, PaseoAgent, SourceResult } from './paseoTypes.js';
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import type { AgentSource, PaseoAgent, SourceResult } from "./paseoTypes.js";
 
 export interface DiskSourceOptions {
   agentsDir: string;
@@ -39,7 +39,7 @@ export class DiskSource implements AgentSource {
 
   async poll(): Promise<SourceResult> {
     const agents: PaseoAgent[] = [];
-    let topEntries: import('node:fs').Dirent[];
+    let topEntries: import("node:fs").Dirent[];
     try {
       topEntries = await fs.readdir(this.agentsDir, { withFileTypes: true });
     } catch {
@@ -49,27 +49,27 @@ export class DiskSource implements AgentSource {
     for (const entry of topEntries) {
       if (!entry.isDirectory()) continue;
       const sub = path.join(this.agentsDir, entry.name);
-      let subEntries: import('node:fs').Dirent[];
+      let subEntries: import("node:fs").Dirent[];
       try {
         subEntries = await fs.readdir(sub, { withFileTypes: true });
       } catch {
         continue;
       }
       for (const f of subEntries) {
-        if (!f.isFile() || !f.name.endsWith('.json')) continue;
+        if (!f.isFile() || !f.name.endsWith(".json")) continue;
         const full = path.join(sub, f.name);
         try {
-          const raw = await fs.readFile(full, 'utf8');
+          const raw = await fs.readFile(full, "utf8");
           const obj = JSON.parse(raw) as RawDiskAgent;
-          if (!obj || typeof obj.id !== 'string') {
+          if (!obj || typeof obj.id !== "string") {
             warnOnce(full, `[paseo-disk] skipping ${full}: missing id`);
             continue;
           }
           agents.push({
             id: obj.id,
             title: obj.title ?? null,
-            cwd: typeof obj.cwd === 'string' ? obj.cwd : '',
-            status: typeof obj.lastStatus === 'string' ? obj.lastStatus : '',
+            cwd: typeof obj.cwd === "string" ? obj.cwd : "",
+            status: typeof obj.lastStatus === "string" ? obj.lastStatus : "",
             // Disk state files DO carry `archivedAt` when an agent is archived
             // (contrary to an earlier assumption). Derive `archived` from it,
             // matching McpSource normalization — otherwise an archived-but-idle

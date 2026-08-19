@@ -1,6 +1,6 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import type { AgentSource, PaseoAgent, SourceResult } from './paseoTypes.js';
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import type { AgentSource, PaseoAgent, SourceResult } from "./paseoTypes.js";
 
 export interface McpSourceOptions {
   baseUrl: string;
@@ -37,7 +37,7 @@ export class McpSource implements AgentSource {
   private tokenDiscoveryPromise: Promise<string | null> | null = null;
 
   constructor(opts: McpSourceOptions) {
-    this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.agentsDir = opts.agentsDir;
     this.fetchFn = opts.fetchFn ?? fetch;
   }
@@ -48,7 +48,9 @@ export class McpSource implements AgentSource {
       // No agent state files at all; treat as daemon-down only if health also fails.
       // Otherwise return empty (no agents known). Per spec, missing token means
       // we cannot auth MCP — classify based on daemon health.
-      return this.classifyDaemonFailure('no agent state files found for token discovery');
+      return this.classifyDaemonFailure(
+        "no agent state files found for token discovery",
+      );
     }
 
     let res = await this.callListAgents(token);
@@ -56,25 +58,41 @@ export class McpSource implements AgentSource {
       // Re-discover token once and retry.
       this.cachedToken = null;
       token = await this.getToken(true);
-      if (!token) return this.classifyDaemonFailure('token rediscovery failed');
+      if (!token) return this.classifyDaemonFailure("token rediscovery failed");
       res = await this.callListAgents(token);
     }
 
     if (res.status === 401) {
-      return { ok: false, reason: 'auth', detail: 'token rejected after rediscovery' };
+      return {
+        ok: false,
+        reason: "auth",
+        detail: "token rejected after rediscovery",
+      };
     }
 
     if (!res.ok) {
       // Network error or non-200: distinguish daemon-down via health probe.
       const isDown = await this.isDaemonDown();
       return isDown
-        ? { ok: false, reason: 'daemon-down', detail: `MCP call failed (${res.detail})` }
-        : { ok: false, reason: 'error', detail: `MCP call failed (${res.detail})` };
+        ? {
+          ok: false,
+          reason: "daemon-down",
+          detail: `MCP call failed (${res.detail})`,
+        }
+        : {
+          ok: false,
+          reason: "error",
+          detail: `MCP call failed (${res.detail})`,
+        };
     }
 
     const parsed = parseMcpResponse(res.body);
     if (!parsed.ok) {
-      return { ok: false, reason: 'error', detail: `failed to parse MCP response: ${parsed.detail}` };
+      return {
+        ok: false,
+        reason: "error",
+        detail: `failed to parse MCP response: ${parsed.detail}`,
+      };
     }
 
     const agents = normalizeMcpAgents(parsed.value);
@@ -83,23 +101,29 @@ export class McpSource implements AgentSource {
 
   private async callListAgents(
     token: string,
-  ): Promise<{ ok: true; status: number; body: string } | { ok: false; status: number; detail: string }> {
+  ): Promise<
+    { ok: true; status: number; body: string } | {
+      ok: false;
+      status: number;
+      detail: string;
+    }
+  > {
     const url = `${this.baseUrl}/mcp/agents`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), MCP_TIMEOUT_MS);
     try {
       const res = await this.fetchFn(url, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/event-stream',
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          jsonrpc: '2.0',
+          jsonrpc: "2.0",
           id: 1,
-          method: 'tools/call',
-          params: { name: 'list_agents', arguments: {} },
+          method: "tools/call",
+          params: { name: "list_agents", arguments: {} },
         }),
         signal: controller.signal,
       });
@@ -156,7 +180,7 @@ export class McpSource implements AgentSource {
       }
       if (!newestFile) return null;
 
-      const raw = await fs.readFile(newestFile, 'utf8');
+      const raw = await fs.readFile(newestFile, "utf8");
       const obj = JSON.parse(raw) as {
         persistence?: {
           metadata?: {
@@ -169,7 +193,8 @@ export class McpSource implements AgentSource {
         };
       };
       const auth =
-        obj?.persistence?.metadata?.mcpServers?.paseo?.headers?.Authorization ?? null;
+        obj?.persistence?.metadata?.mcpServers?.paseo?.headers?.Authorization ??
+          null;
       if (!auth) return null;
       const m = auth.match(/^Bearer\s+(.+)$/i);
       return m ? m[1] : null;
@@ -195,14 +220,14 @@ export class McpSource implements AgentSource {
   private async classifyDaemonFailure(detail: string): Promise<SourceResult> {
     const down = await this.isDaemonDown();
     return down
-      ? { ok: false, reason: 'daemon-down', detail }
-      : { ok: false, reason: 'error', detail };
+      ? { ok: false, reason: "daemon-down", detail }
+      : { ok: false, reason: "error", detail };
   }
 }
 
 async function collectAgentJson(agentsDir: string): Promise<string[]> {
   const out: string[] = [];
-  let topEntries: import('node:fs').Dirent[];
+  let topEntries: import("node:fs").Dirent[];
   try {
     topEntries = await fs.readdir(agentsDir, { withFileTypes: true });
   } catch {
@@ -211,14 +236,14 @@ async function collectAgentJson(agentsDir: string): Promise<string[]> {
   for (const entry of topEntries) {
     if (!entry.isDirectory()) continue;
     const sub = path.join(agentsDir, entry.name);
-    let subEntries: import('node:fs').Dirent[];
+    let subEntries: import("node:fs").Dirent[];
     try {
       subEntries = await fs.readdir(sub, { withFileTypes: true });
     } catch {
       continue;
     }
     for (const f of subEntries) {
-      if (f.isFile() && f.name.endsWith('.json')) {
+      if (f.isFile() && f.name.endsWith(".json")) {
         out.push(path.join(sub, f.name));
       }
     }
@@ -232,14 +257,14 @@ export function parseMcpResponse(
   let jsonText: string;
   const trimmed = body.trim();
   // SSE shape: lines like `event: message` and `data: {...}`.
-  if (trimmed.startsWith('event:') || trimmed.startsWith('data:')) {
+  if (trimmed.startsWith("event:") || trimmed.startsWith("data:")) {
     const dataLines: string[] = [];
     for (const line of trimmed.split(/\r?\n/)) {
-      if (line.startsWith('data:')) {
+      if (line.startsWith("data:")) {
         dataLines.push(line.slice(5).trimStart());
       }
     }
-    jsonText = dataLines.join('\n');
+    jsonText = dataLines.join("\n");
   } else {
     jsonText = trimmed;
   }
@@ -259,7 +284,7 @@ export function normalizeMcpAgents(resp: McpJsonRpcResponse): PaseoAgent[] {
   // The text payload starts with a plaintext header
   // (`agents_count=...\nagents_ids=...\n\n`) followed by pretty-printed JSON
   // `{"agents": [...]}`. Slice from the first `{`.
-  const start = text.indexOf('{');
+  const start = text.indexOf("{");
   if (start < 0) return [];
   let inner: { agents?: RawMcpAgent[] };
   try {
@@ -270,12 +295,12 @@ export function normalizeMcpAgents(resp: McpJsonRpcResponse): PaseoAgent[] {
   const agents = Array.isArray(inner?.agents) ? inner!.agents! : [];
   const out: PaseoAgent[] = [];
   for (const a of agents) {
-    if (!a || typeof a.id !== 'string') continue;
+    if (!a || typeof a.id !== "string") continue;
     out.push({
       id: a.id,
       title: a.title ?? null,
-      cwd: typeof a.cwd === 'string' ? a.cwd : '',
-      status: typeof a.status === 'string' ? a.status : '',
+      cwd: typeof a.cwd === "string" ? a.cwd : "",
+      status: typeof a.status === "string" ? a.status : "",
       archived: a.archivedAt != null,
       requiresAttention: a.requiresAttention === true,
       attentionReason: a.attentionReason ?? null,

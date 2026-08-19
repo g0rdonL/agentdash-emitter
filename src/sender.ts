@@ -1,4 +1,4 @@
-import type { StatusEvent } from './contract';
+import type { StatusEvent } from "./contract";
 
 export interface BackendSenderOptions {
   backendUrl: string;
@@ -13,7 +13,8 @@ export interface BackendSenderOptions {
   baseBackoffMs?: number;
 }
 
-const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const defaultSleep = (ms: number) =>
+  new Promise<void>((r) => setTimeout(r, ms));
 
 export class BackendSender {
   private readonly backendUrl: string;
@@ -24,7 +25,7 @@ export class BackendSender {
   private readonly baseBackoffMs: number;
 
   constructor(opts: BackendSenderOptions) {
-    this.backendUrl = opts.backendUrl.replace(/\/+$/, '');
+    this.backendUrl = opts.backendUrl.replace(/\/+$/, "");
     this.accountToken = opts.accountToken;
     this.fetchFn = opts.fetchFn ?? fetch;
     this.sleep = opts.sleep ?? defaultSleep;
@@ -41,9 +42,9 @@ export class BackendSender {
       let networkError: unknown = null;
       try {
         res = await this.fetchFn(url, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
             Authorization: `Bearer ${this.accountToken}`,
           },
           body: JSON.stringify(event),
@@ -61,7 +62,9 @@ export class BackendSender {
 
       if (attempt >= this.maxRetries) {
         if (networkError) throw networkError;
-        throw new Error(`backend send failed after retries (${res?.status ?? 'network'})`);
+        throw new Error(
+          `backend send failed after retries (${res?.status ?? "network"})`,
+        );
       }
       await this.sleep(this.baseBackoffMs * 2 ** attempt);
       attempt += 1;

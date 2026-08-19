@@ -1,7 +1,7 @@
-import type { AdapterConfig } from './paseoTypes.js';
+import type { AdapterConfig } from "./paseoTypes.js";
 import process from "node:process";
 
-const DEFAULT_PASEO_BASE_URL = 'http://127.0.0.1:6767';
+const DEFAULT_PASEO_BASE_URL = "http://127.0.0.1:6767";
 const DEFAULT_POLL_INTERVAL_SEC = 5;
 const DEFAULT_IDLE_TTL_MIN = 30;
 const DEFAULT_HEALTH_FAILURES_MAX = 3;
@@ -12,14 +12,14 @@ const DEFAULT_HEALTH_FAILURES_MAX = 3;
  * treated as a plain `~` expansion — we don't resolve other users' homes).
  */
 export function expandTilde(path: string): string {
-  if (path === '~') return process.env.HOME ?? process.cwd();
-  if (path.startsWith('~/')) return `${process.env.HOME ?? ''}${path.slice(1)}`;
+  if (path === "~") return process.env.HOME ?? process.cwd();
+  if (path.startsWith("~/")) return `${process.env.HOME ?? ""}${path.slice(1)}`;
   // `~user/...` — not commonly needed here; leave as-is rather than guessing.
   return path;
 }
 
 function parsePositiveInt(raw: string | undefined, fieldName: string): number {
-  if (raw === undefined || raw === '') {
+  if (raw === undefined || raw === "") {
     throw new Error(`${fieldName} must be set to a positive integer`);
   }
   const n = Number(raw);
@@ -29,13 +29,18 @@ function parsePositiveInt(raw: string | undefined, fieldName: string): number {
   return n;
 }
 
-function parseNonNegativeInt(raw: string | undefined, fieldName: string): number {
-  if (raw === undefined || raw === '') {
+function parseNonNegativeInt(
+  raw: string | undefined,
+  fieldName: string,
+): number {
+  if (raw === undefined || raw === "") {
     throw new Error(`${fieldName} must be set to a non-negative integer`);
   }
   const n = Number(raw);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
-    throw new Error(`${fieldName} must be a non-negative integer (got: ${raw})`);
+    throw new Error(
+      `${fieldName} must be a non-negative integer (got: ${raw})`,
+    );
   }
   return n;
 }
@@ -54,22 +59,40 @@ function parseNonNegativeInt(raw: string | undefined, fieldName: string): number
  * BACKEND_URL and ACCOUNT_TOKEN (used by the shared BackendSender) are validated
  * by the emitter's entry point, not here.
  */
-export function loadConfig(env: Record<string, string | undefined> = process.env): AdapterConfig {
+export function loadConfig(
+  env: Record<string, string | undefined> = process.env,
+): AdapterConfig {
   // Best-effort .env load. Node ≥20.12 exposes process.loadEnvFile.
-  if (env === process.env && typeof (process as { loadEnvFile?: (f?: string) => void }).loadEnvFile === 'function') {
+  if (
+    env === process.env &&
+    typeof (process as { loadEnvFile?: (f?: string) => void }).loadEnvFile ===
+      "function"
+  ) {
     try {
-      (process as { loadEnvFile: (f?: string) => void }).loadEnvFile('.env');
+      (process as { loadEnvFile: (f?: string) => void }).loadEnvFile(".env");
     } catch {
       // .env missing or unparsable — proceed with whatever env is set.
     }
   }
 
-  const paseoBaseUrl = (env.PASEO_BASE_URL?.trim() || DEFAULT_PASEO_BASE_URL).replace(/\/+$/, '');
-  const paseoAgentsDir = expandTilde(env.PASEO_AGENTS_DIR?.trim() || '~/.paseo/agents');
+  const paseoBaseUrl = (env.PASEO_BASE_URL?.trim() || DEFAULT_PASEO_BASE_URL)
+    .replace(/\/+$/, "");
+  const paseoAgentsDir = expandTilde(
+    env.PASEO_AGENTS_DIR?.trim() || "~/.paseo/agents",
+  );
 
-  const pollIntervalSec = parsePositiveInt(env.POLL_INTERVAL_SEC ?? String(DEFAULT_POLL_INTERVAL_SEC), 'POLL_INTERVAL_SEC');
-  const idleTtlMin = parsePositiveInt(env.IDLE_TTL_MIN ?? String(DEFAULT_IDLE_TTL_MIN), 'IDLE_TTL_MIN');
-  const healthFailuresMax = parseNonNegativeInt(env.HEALTH_FAILURES_MAX ?? String(DEFAULT_HEALTH_FAILURES_MAX), 'HEALTH_FAILURES_MAX');
+  const pollIntervalSec = parsePositiveInt(
+    env.POLL_INTERVAL_SEC ?? String(DEFAULT_POLL_INTERVAL_SEC),
+    "POLL_INTERVAL_SEC",
+  );
+  const idleTtlMin = parsePositiveInt(
+    env.IDLE_TTL_MIN ?? String(DEFAULT_IDLE_TTL_MIN),
+    "IDLE_TTL_MIN",
+  );
+  const healthFailuresMax = parseNonNegativeInt(
+    env.HEALTH_FAILURES_MAX ?? String(DEFAULT_HEALTH_FAILURES_MAX),
+    "HEALTH_FAILURES_MAX",
+  );
 
   return {
     paseoBaseUrl,

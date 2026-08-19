@@ -1,10 +1,15 @@
-import { z } from 'zod';
+import { z } from "zod";
 
-export const WIDGET_STATUSES = ['permission_required', 'waiting', 'thinking', 'disconnected'] as const;
+export const WIDGET_STATUSES = [
+  "permission_required",
+  "waiting",
+  "thinking",
+  "disconnected",
+] as const;
 export type WidgetStatus = (typeof WIDGET_STATUSES)[number];
 
 // The "active" statuses a session can present (disconnected => never selected).
-export type ActiveStatus = 'permission_required' | 'waiting' | 'thinking';
+export type ActiveStatus = "permission_required" | "waiting" | "thinking";
 
 export const StatusEventMetadataSchema = z
   .object({
