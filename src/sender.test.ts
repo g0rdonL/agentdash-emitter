@@ -12,7 +12,7 @@ const event: StatusEvent = {
 describe("BackendSender", () => {
   it("POSTs to {backendUrl}/events with bearer auth and JSON body", async () => {
     const fetchMock = vi.fn(
-      async () => ({ ok: true, status: 200 } as Response),
+      () => ({ ok: true, status: 200 } as Response),
     );
     const sender = new BackendSender({
       backendUrl: "https://api.example.com",
@@ -57,7 +57,7 @@ describe("BackendSender", () => {
 
   it("does NOT retry on a 4xx (caller error) and throws", async () => {
     const fetchMock = vi.fn(
-      async () => ({ ok: false, status: 400 } as Response),
+      () => ({ ok: false, status: 400 } as Response),
     );
     const sender = new BackendSender({
       backendUrl: "https://api.example.com",
@@ -71,7 +71,7 @@ describe("BackendSender", () => {
 
   it("throws after exhausting retries on persistent 5xx", async () => {
     const fetchMock = vi.fn(
-      async () => ({ ok: false, status: 503 } as Response),
+      () => ({ ok: false, status: 503 } as Response),
     );
     const sender = new BackendSender({
       backendUrl: "https://api.example.com",
