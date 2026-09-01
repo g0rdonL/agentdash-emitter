@@ -1,9 +1,19 @@
 # AgentDash Emitter
 
-Runs on the user's Mac. Reads local Happy session status, derives a coarse
-status (`thinking | waiting | permission_required | disconnected`), and POSTs
-`{ sessionId, status, projectLabel, updatedAt }` to the backend. **No message
-text, code, or keys ever leave the machine** — decryption is local.
+The companion daemon for [AgentDash](https://agentdash.gordonlee.xyz) — the
+Android home-screen widget for your AI coding agents' status & usage limits.
+
+Runs on your own machine. Reads local Happy/Claude Code/OpenCode/Paseo
+session status, derives a coarse status
+(`thinking | waiting | permission_required | disconnected`), and POSTs
+`{ sessionId, status, projectLabel, updatedAt }` to your AgentDash account's
+backend. **No message text, code, or prompts ever leave your machine** —
+only session status metadata; any decryption needed to read that metadata is
+done locally.
+
+Get your account/API key by signing in at
+[agentdash.gordonlee.xyz](https://agentdash.gordonlee.xyz) and creating a
+key under API Keys.
 
 ## Run
 
