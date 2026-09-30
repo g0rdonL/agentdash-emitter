@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- LaunchAgent template for the emitter. Install:
-       cp this file to ~/Library/LaunchAgents/site.primolabs.agentwidget.emitter.plist
+       cp this file to ~/Library/LaunchAgents/ink.agentdash.emitter.plist
        replace REPLACE_WITH_ACCOUNT_TOKEN + paths, then:
-       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/site.primolabs.agentwidget.emitter.plist
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ink.agentdash.emitter.plist
      Logs: ~/Library/Logs/agentwidget-emitter.log -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>site.primolabs.agentwidget.emitter</string>
+    <string>ink.agentdash.emitter</string>
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/node</string>
