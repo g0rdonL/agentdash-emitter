@@ -239,6 +239,24 @@ describe("ClaudePoller", () => {
     expect(collect(new ClaudePoller(opts))).toEqual([]);
   });
 
+  it("never assigns a Paseo-owned session to a standalone process", () => {
+    const cwd = "/Users/gordon";
+    const claudeDir = makeClaudeDir([
+      { cwd, sessionId: "sess-mine" },
+      { cwd, sessionId: "sess-paseo" },
+    ]);
+    const projDir = join(claudeDir, "projects", encodeCwd(cwd));
+    utimesSync(join(projDir, "sess-mine.jsonl"), 1000, 1000);
+    utimesSync(join(projDir, "sess-paseo.jsonl"), 2000, 2000); // newest
+    const poller = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn([{ pid: 100, cwd, ppid: 1 }]),
+      nowFn: () => NOW,
+      excludeSessionIds: () => new Set(["sess-paseo"]),
+    });
+    expect(collect(poller).map((e) => e.sessionId)).toEqual(["sess-mine"]);
+  });
+
   it("falls back to claude-<pid> when no session file matches the cwd", () => {
     const claudeDir = makeClaudeDir([]); // empty projects dir
     const poller = new ClaudePoller({

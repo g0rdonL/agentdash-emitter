@@ -20,6 +20,7 @@ const claudePoller = process.env.CLAUDE_POLLER === "0"
   ? null
   : new ClaudePoller({
     statePath: join(homedir(), ".local", "state", "agentdash-emitter", "claude-known.json"),
+    excludeSessionIds: () => paseoSessionIds(),
   });
 claudePoller?.start((event) => {
   sender.sendEvent(event).catch((err) => {

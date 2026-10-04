@@ -44,6 +44,8 @@ export interface ClaudePollerOptions {
    * and its row stays on the widget forever. Omit to disable (tests).
    */
   statePath?: string;
+  /** Session ids owned by Paseo; never assigned to a standalone process. */
+  excludeSessionIds?: () => Set<string>;
 }
 
 interface LiveSession {
@@ -97,6 +99,7 @@ export class ClaudePoller {
   private readonly execFn: (cmd: string) => string;
   private readonly nowFn: () => number;
   private readonly statePath: string | undefined;
+  private readonly excludeSessionIds: () => Set<string>;
   private timer: ReturnType<typeof setInterval> | null = null;
   private known = new Map<string, LiveSession>();
   // pid -> session it was first assigned. Keeps two claude processes sharing a
@@ -110,6 +113,7 @@ export class ClaudePoller {
       ((cmd: string) => nodeExecSync(cmd, { encoding: "utf-8" }) as string);
     this.nowFn = opts.nowFn ?? Date.now;
     this.statePath = opts.statePath;
+    this.excludeSessionIds = opts.excludeSessionIds ?? (() => new Set());
     this.loadState();
   }
 
@@ -206,13 +210,14 @@ export class ClaudePoller {
       if (sticky && !claimed.has(sticky)) claimed.add(sticky);
     }
 
+    const excluded = this.excludeSessionIds();
     const candidates = new Map<string, string[]>();
     for (const proc of procs.sort((a, b) => a.pid - b.pid)) {
       let sessionId = this.pidSession.get(proc.pid);
       if (!sessionId) {
         let list = candidates.get(proc.cwd);
         if (!list) {
-          list = this.sessionsForCwd(proc.cwd);
+          list = this.sessionsForCwd(proc.cwd).filter((id) => !excluded.has(id));
           candidates.set(proc.cwd, list);
         }
         sessionId = list.find((id) => !claimed.has(id));
