@@ -61,7 +61,29 @@ console.log(
   } opencodePoller=${opencodePoller ? "on" : "off"}`,
 );
 
+// ── Heartbeat ───────────────────────────────────────────────────────
+// Events are only sent on state change, so without this the backend cannot
+// tell a quiet live session from one whose emitter died. Every beat re-vouches
+// for each live session (the backend expires rows nobody vouches for) and
+// pings so "emitter is up" is visible even with zero sessions.
+const HEARTBEAT_MS = 60_000;
+const beat = () => {
+  sender.sendPing().catch((err) => console.error("[emitter] ping failed:", err));
+  const live = [
+    ...(claudePoller?.liveEvents() ?? []),
+    ...(opencodePoller?.liveEvents() ?? []),
+  ];
+  for (const event of live) {
+    sender.sendHeartbeat(event).catch((err) =>
+      console.error(`[emitter] heartbeat failed for ${event.sessionId}:`, err)
+    );
+  }
+};
+beat();
+const heartbeatTimer = setInterval(beat, HEARTBEAT_MS);
+
 const shutdown = () => {
+  clearInterval(heartbeatTimer);
   console.log("[emitter] shutting down");
   claudePoller?.stop();
   opencodePoller?.stop();

@@ -37,6 +37,22 @@ describe("BackendSender", () => {
     expect(JSON.parse(init.body as string)).toEqual(event);
   });
 
+  it("marks heartbeats and pings so the backend skips push fan-out", async () => {
+    const fetchMock = vi.fn(() => ({ ok: true, status: 200 } as Response));
+    const sender = new BackendSender({
+      backendUrl: "https://api.example.com",
+      accountToken: "secret",
+      fetchFn: fetchMock as unknown as typeof fetch,
+      sleep: async () => {},
+    });
+    await sender.sendHeartbeat(event);
+    await sender.sendPing();
+    const bodies = fetchMock.mock.calls.map((c) =>
+      JSON.parse((c as unknown as [string, RequestInit])[1].body as string)
+    );
+    expect(bodies).toEqual([{ ...event, heartbeat: true }, { ping: true }]);
+  });
+
   it("retries on a 500 then succeeds, with backoff", async () => {
     const fetchMock = vi
       .fn()

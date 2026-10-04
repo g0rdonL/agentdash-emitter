@@ -158,6 +158,17 @@ export class ClaudePoller {
     this.timer = null;
   }
 
+  /** Currently reported sessions, for the heartbeat loop. */
+  liveEvents(): StatusEvent[] {
+    const now = this.nowFn();
+    return [...this.known.values()].map((s) => ({
+      sessionId: s.sessionId,
+      status: "thinking" as const,
+      projectLabel: s.label,
+      updatedAt: now,
+    }));
+  }
+
   /** One poll cycle: diff live sessions against known, emit changes. */
   poll(onEvent: (event: StatusEvent) => void): void {
     const live = this.discover();

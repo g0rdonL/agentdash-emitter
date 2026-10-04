@@ -103,6 +103,17 @@ export class OpencodePoller {
     this.timer = null;
   }
 
+  /** Currently reported sessions, for the heartbeat loop. */
+  liveEvents(): StatusEvent[] {
+    const now = this.nowFn();
+    return [...this.known].map(([sessionId, s]) => ({
+      sessionId,
+      status: s.status,
+      projectLabel: s.projectLabel,
+      updatedAt: now,
+    }));
+  }
+
   /** One poll cycle: emit events for active sessions + disconnects. */
   poll(onEvent: (event: StatusEvent) => void): void {
     const now = this.nowFn();

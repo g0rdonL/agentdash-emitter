@@ -33,7 +33,22 @@ export class BackendSender {
     this.baseBackoffMs = opts.baseBackoffMs ?? 500;
   }
 
-  async sendEvent(event: StatusEvent): Promise<void> {
+  /** State-change event: the backend upserts it and fans out pushes. */
+  sendEvent(event: StatusEvent): Promise<void> {
+    return this.post(event);
+  }
+
+  /** "Still alive, nothing changed": refreshes server-side liveness only. */
+  sendHeartbeat(event: StatusEvent): Promise<void> {
+    return this.post({ ...event, heartbeat: true });
+  }
+
+  /** Emitter keepalive that works even when there are no sessions. */
+  sendPing(): Promise<void> {
+    return this.post({ ping: true });
+  }
+
+  private async post(body: object): Promise<void> {
     const url = `${this.backendUrl}/events`;
     let attempt = 0;
     // total tries = 1 + maxRetries
@@ -47,7 +62,7 @@ export class BackendSender {
             "Content-Type": "application/json",
             Authorization: `Bearer ${this.accountToken}`,
           },
-          body: JSON.stringify(event),
+          body: JSON.stringify(body),
         });
       } catch (err) {
         networkError = err;

@@ -257,6 +257,25 @@ describe("ClaudePoller", () => {
     expect(collect(poller).map((e) => e.sessionId)).toEqual(["sess-mine"]);
   });
 
+  it("liveEvents lists exactly the sessions currently reported", () => {
+    const cwd = "/Users/gordon/dev/foo";
+    const claudeDir = makeClaudeDir([{ cwd, sessionId: "sess-aaa" }]);
+    const procs: FakeProc[] = [{ pid: 100, cwd, ppid: 1 }];
+    const poller = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn(procs),
+      nowFn: () => NOW,
+    });
+    expect(poller.liveEvents()).toEqual([]);
+    collect(poller);
+    expect(poller.liveEvents()).toEqual([
+      { sessionId: "sess-aaa", status: "thinking", projectLabel: "foo sess-aaa", updatedAt: NOW },
+    ]);
+    procs.length = 0;
+    collect(poller);
+    expect(poller.liveEvents()).toEqual([]);
+  });
+
   it("falls back to claude-<pid> when no session file matches the cwd", () => {
     const claudeDir = makeClaudeDir([]); // empty projects dir
     const poller = new ClaudePoller({
