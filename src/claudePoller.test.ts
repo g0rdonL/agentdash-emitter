@@ -37,21 +37,11 @@ interface FakeProc {
   ppid: number;
 }
 
-function makeExecFn(procs: FakeProc[], happyPids: number[] = []) {
+function makeExecFn(procs: FakeProc[]) {
   return (cmd: string): string => {
     if (cmd.startsWith("pgrep -x 'claude'")) {
       if (procs.length === 0) throw new Error("pgrep: no match");
       return procs.map((p) => p.pid).join("\n") + "\n";
-    }
-    if (cmd.startsWith("pgrep -f 'happy'")) {
-      if (happyPids.length === 0) throw new Error("pgrep: no match");
-      return happyPids.join("\n") + "\n";
-    }
-    const psMatch = cmd.match(/ps -o ppid= -p (\d+)/);
-    if (psMatch) {
-      const pid = parseInt(psMatch[1], 10);
-      const proc = procs.find((p) => p.pid === pid);
-      return `${proc ? proc.ppid : 1}\n`;
     }
     const lsofMatch = cmd.match(/lsof -a -d cwd -p (\d+)/);
     if (lsofMatch) {
@@ -108,22 +98,6 @@ describe("ClaudePoller", () => {
     expect(events).toHaveLength(1);
     expect(events[0].sessionId).toBe("sess-hyph");
     expect(events[0].projectLabel).toBe("gordon-trader");
-  });
-
-  it("skips claude processes descended from happy (dedup with Happy adapter)", () => {
-    const claudeDir = makeClaudeDir([{
-      cwd: "/Users/gordon/dev/foo",
-      sessionId: "sess-aaa",
-    }]);
-    const poller = new ClaudePoller({
-      claudeDir,
-      execFn: makeExecFn(
-        [{ pid: 100, cwd: "/Users/gordon/dev/foo", ppid: 50 }], // child of happy pid 50
-        [50],
-      ),
-      nowFn: () => NOW,
-    });
-    expect(collect(poller)).toEqual([]);
   });
 
   it("does not re-emit for an already-known session", () => {

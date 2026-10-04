@@ -11,8 +11,6 @@ import process from "node:process";
  *
  * - Only sessions with a LIVE claude process become rows (state=thinking).
  *   Idle JSONLs are ignored — a 24h idle window would flood the widget.
- * - Claude processes that are descendants of a Happy process are skipped:
- *   the Happy adapter already reports those sessions (dedup).
  * - When a previously-reported session loses its process, one final
  *   'disconnected' event is emitted, then it is forgotten.
  *
@@ -105,7 +103,7 @@ export class ClaudePoller {
     }
   }
 
-  /** Find claude processes NOT descended from Happy, then map to sessions. */
+  /** Find claude processes, then map them to sessions. */
   private discover(): Map<string, LiveSession> {
     const result = new Map<string, LiveSession>();
 
@@ -133,47 +131,13 @@ export class ClaudePoller {
       return []; // pgrep exits 1 when nothing matches
     }
 
-    const happyPids = this.happyPids();
     const out: Array<{ pid: number; cwd: string }> = [];
     for (const pid of pids) {
-      if (this.hasAncestorIn(pid, happyPids)) continue; // Happy adapter owns it
       const cwd = this.cwdOf(pid);
       if (!cwd) continue;
       out.push({ pid, cwd });
     }
     return out;
-  }
-
-  private happyPids(): Set<number> {
-    try {
-      return new Set(
-        this.execFn("pgrep -f 'happy'")
-          .trim()
-          .split("\n")
-          .filter(Boolean)
-          .map((p) => parseInt(p, 10))
-          .filter(Number.isFinite),
-      );
-    } catch {
-      return new Set();
-    }
-  }
-
-  private hasAncestorIn(pid: number, ancestors: Set<number>): boolean {
-    if (ancestors.size === 0) return false;
-    let current = pid;
-    for (let hops = 0; hops < 20; hops++) {
-      let ppid: number;
-      try {
-        ppid = parseInt(this.execFn(`ps -o ppid= -p ${current}`).trim(), 10);
-      } catch {
-        return false;
-      }
-      if (!Number.isFinite(ppid) || ppid <= 1) return false;
-      if (ancestors.has(ppid)) return true;
-      current = ppid;
-    }
-    return false;
   }
 
   private cwdOf(pid: number): string | null {

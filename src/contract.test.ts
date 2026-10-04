@@ -6,7 +6,7 @@ describe("StatusEventSchema", () => {
     const e = {
       sessionId: "s1",
       status: "waiting",
-      projectLabel: "happy",
+      projectLabel: "widget",
       updatedAt: 123,
     };
     expect(StatusEventSchema.parse(e)).toEqual(e);

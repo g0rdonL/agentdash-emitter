@@ -7,7 +7,7 @@ export interface StatusInput {
 }
 
 /**
- * Map the three coarse signals derived from Happy to the widget status enum.
+ * Map the three coarse signals to the widget status enum.
  * Priority within an active session: permission_required > thinking > waiting.
  * An inactive session is always disconnected.
  */

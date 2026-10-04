@@ -5,7 +5,7 @@ import type { StatusEvent } from "./contract";
 const event: StatusEvent = {
   sessionId: "s1",
   status: "waiting",
-  projectLabel: "happy",
+  projectLabel: "widget",
   updatedAt: 5,
 };
 
