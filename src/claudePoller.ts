@@ -1,6 +1,6 @@
 import { execSync as nodeExecSync } from "child_process";
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "fs";
-import { basename, join } from "path";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "fs";
+import { basename, dirname, join } from "path";
 import { homedir } from "os";
 import type { StatusEvent } from "./contract.js";
 import process from "node:process";
@@ -38,6 +38,12 @@ export interface ClaudePollerOptions {
   /** Injectable for tests; defaults to child_process.execSync. */
   execFn?: (cmd: string) => string;
   nowFn?: () => number;
+  /**
+   * JSON file that remembers reported sessions across restarts. Without it, a
+   * session that ends while the emitter is down is never sent a 'disconnected'
+   * and its row stays on the widget forever. Omit to disable (tests).
+   */
+  statePath?: string;
 }
 
 interface LiveSession {
@@ -90,6 +96,7 @@ export class ClaudePoller {
   private readonly intervalMs: number;
   private readonly execFn: (cmd: string) => string;
   private readonly nowFn: () => number;
+  private readonly statePath: string | undefined;
   private timer: ReturnType<typeof setInterval> | null = null;
   private known = new Map<string, LiveSession>();
   // pid -> session it was first assigned. Keeps two claude processes sharing a
@@ -102,6 +109,32 @@ export class ClaudePoller {
     this.execFn = opts.execFn ??
       ((cmd: string) => nodeExecSync(cmd, { encoding: "utf-8" }) as string);
     this.nowFn = opts.nowFn ?? Date.now;
+    this.statePath = opts.statePath;
+    this.loadState();
+  }
+
+  private loadState(): void {
+    if (!this.statePath) return;
+    try {
+      const saved = JSON.parse(readFileSync(this.statePath, "utf-8"));
+      for (const s of saved as LiveSession[]) {
+        if (s?.sessionId && s.label) this.known.set(s.sessionId, s);
+      }
+    } catch {
+      /* first run or unreadable: start empty */
+    }
+  }
+
+  private saveState(): void {
+    if (!this.statePath) return;
+    try {
+      mkdirSync(dirname(this.statePath), { recursive: true });
+      const tmp = `${this.statePath}.tmp`;
+      writeFileSync(tmp, JSON.stringify([...this.known.values()]));
+      renameSync(tmp, this.statePath);
+    } catch (err) {
+      console.error("[claude-poller] could not save state:", err);
+    }
   }
 
   start(onEvent: (event: StatusEvent) => void): void {
@@ -150,6 +183,7 @@ export class ClaudePoller {
         this.known.delete(sessionId);
       }
     }
+    this.saveState();
   }
 
   /** Find claude processes, then map them to sessions. */

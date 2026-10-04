@@ -198,6 +198,47 @@ describe("ClaudePoller", () => {
     expect(ev.projectLabel.length).toBeLessThanOrEqual(40);
   });
 
+  it("disconnects a remembered session that ended while the emitter was down", () => {
+    const cwd = "/Users/gordon/dev/foo";
+    const claudeDir = makeClaudeDir([{ cwd, sessionId: "sess-aaa" }]);
+    const statePath = join(claudeDir, "state", "known.json");
+    const procs: FakeProc[] = [{ pid: 100, cwd, ppid: 1 }];
+    const first = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn(procs),
+      nowFn: () => NOW,
+      statePath,
+    });
+    expect(collect(first)).toHaveLength(1);
+
+    // Emitter restarts; the claude process exited in the meantime.
+    procs.length = 0;
+    const second = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn(procs),
+      nowFn: () => NOW,
+      statePath,
+    });
+    expect(collect(second)).toEqual([
+      {
+        sessionId: "sess-aaa",
+        status: "disconnected",
+        projectLabel: "foo sess-aaa",
+        updatedAt: NOW,
+      },
+    ]);
+  });
+
+  it("does not re-announce a remembered session that is still running", () => {
+    const cwd = "/Users/gordon/dev/foo";
+    const claudeDir = makeClaudeDir([{ cwd, sessionId: "sess-aaa" }]);
+    const statePath = join(claudeDir, "state", "known.json");
+    const procs: FakeProc[] = [{ pid: 100, cwd, ppid: 1 }];
+    const opts = { claudeDir, execFn: makeExecFn(procs), nowFn: () => NOW, statePath };
+    collect(new ClaudePoller(opts));
+    expect(collect(new ClaudePoller(opts))).toEqual([]);
+  });
+
   it("falls back to claude-<pid> when no session file matches the cwd", () => {
     const claudeDir = makeClaudeDir([]); // empty projects dir
     const poller = new ClaudePoller({

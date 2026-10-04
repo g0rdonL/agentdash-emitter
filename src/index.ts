@@ -3,6 +3,8 @@ import { ClaudePoller } from "./claudePoller.js";
 import { OpencodePoller } from "./opencodePoller.js";
 import { paseoSessionIds } from "./paseoAgents.js";
 import process from "node:process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const backendUrl = process.env.BACKEND_URL;
 const accountToken = process.env.ACCOUNT_TOKEN;
@@ -16,7 +18,9 @@ const sender = new BackendSender({ backendUrl, accountToken });
 // Standalone Claude Code sessions — disabled via CLAUDE_POLLER=0.
 const claudePoller = process.env.CLAUDE_POLLER === "0"
   ? null
-  : new ClaudePoller();
+  : new ClaudePoller({
+    statePath: join(homedir(), ".local", "state", "agentdash-emitter", "claude-known.json"),
+  });
 claudePoller?.start((event) => {
   sender.sendEvent(event).catch((err) => {
     console.error(
