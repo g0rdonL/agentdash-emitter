@@ -21,16 +21,22 @@ const happyServerUrl = process.env.HAPPY_SERVER_URL ??
   "https://api.cluster-fluster.com";
 
 // The socket auth uses the user's OWN Happy token from ~/.happy/access.key.
-const happyToken = loadCredentials().token;
+// Happy was removed 2026-10-03; without the key, skip the adapter instead of
+// crash-looping so the Claude/OpenCode pollers keep running.
+let adapter: HappyAdapter | null = null;
+try {
+  const happyToken = loadCredentials().token;
+  adapter = new HappyAdapter({
+    serverUrl: happyServerUrl,
+    accountToken: happyToken,
+  });
+} catch (err) {
+  console.log(`[emitter] happy=off (${(err as Error).message})`);
+}
 
 const sender = new BackendSender({ backendUrl, accountToken });
 
-const adapter = new HappyAdapter({
-  serverUrl: happyServerUrl,
-  accountToken: happyToken,
-});
-
-adapter.start((event) => {
+adapter?.start((event) => {
   sender.sendEvent(event).catch((err) => {
     console.error(
       `[emitter] failed to send event for ${event.sessionId}:`,
@@ -167,7 +173,7 @@ if (paseoEnabled) {
 // ────────────────────────────────────────────────────────────────────
 
 console.log(
-  `[emitter] started; Happy=${happyServerUrl} backend=${backendUrl} claudePoller=${
+  `[emitter] started; Happy=${adapter ? happyServerUrl : "off"} backend=${backendUrl} claudePoller=${
     claudePoller ? "on" : "off"
   } opencodePoller=${opencodePoller ? "on" : "off"} paseoPoller=${
     paseoEnabled ? "on" : "off"
@@ -176,7 +182,7 @@ console.log(
 
 const shutdown = () => {
   console.log("[emitter] shutting down");
-  adapter.stop();
+  adapter?.stop();
   claudePoller?.stop();
   opencodePoller?.stop();
   paseoStopped = true;
