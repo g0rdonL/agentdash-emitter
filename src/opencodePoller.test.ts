@@ -277,4 +277,19 @@ describe("OpencodePoller", () => {
     expect(calls).toBeLessThanOrEqual(1); // logged at most once per consecutive failure
     consoleError.mockRestore();
   });
+
+  it("skips sessions in excludeSessionIds (Paseo-owned), keeps the rest", () => {
+    const now = 1_752_500_000_000;
+    const { dbPath } = makeDb([
+      { id: "ses_paseo", title: "paseo agent", directory: "/w", time_updated: now - 1_000 },
+      { id: "ses_mine", title: "mine", directory: "/w", time_updated: now - 1_000 },
+    ]);
+    const poller = new OpencodePoller({
+      dbPath,
+      nowFn: () => now,
+      excludeSessionIds: () => new Set(["ses_paseo"]),
+    });
+    expect(collect(poller).map((e) => e.sessionId)).toEqual(["opencode:ses_mine"]);
+  });
 });
+

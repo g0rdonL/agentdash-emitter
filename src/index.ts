@@ -1,6 +1,7 @@
 import { BackendSender } from "./sender.js";
 import { ClaudePoller } from "./claudePoller.js";
 import { OpencodePoller } from "./opencodePoller.js";
+import { paseoSessionIds } from "./paseoAgents.js";
 import process from "node:process";
 
 const backendUrl = process.env.BACKEND_URL;
@@ -32,7 +33,8 @@ claudePoller?.start((event) => {
 // Local OpenCode sqlite store — disabled by default (OPENCODE_POLLER_ENABLED=1).
 let opencodePoller: OpencodePoller | null = null;
 if (process.env.OPENCODE_POLLER_ENABLED === "1") {
-  opencodePoller = new OpencodePoller();
+  // Sessions run by Paseo agents are reported by the agentdash Paseo plugin.
+  opencodePoller = new OpencodePoller({ excludeSessionIds: () => paseoSessionIds() });
   opencodePoller.start((event) => {
     sender.sendEvent(event).catch((err) => {
       console.error(

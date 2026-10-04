@@ -37,8 +37,15 @@ interface FakeProc {
   ppid: number;
 }
 
-function makeExecFn(procs: FakeProc[]) {
+// psTable: extra "pid ppid command" rows (e.g. the Paseo daemon). When
+// omitted, ps fails, exercising the fail-open path.
+function makeExecFn(procs: FakeProc[], psTable?: string[]) {
   return (cmd: string): string => {
+    if (cmd.startsWith("ps -axo")) {
+      if (!psTable) throw new Error("ps: unavailable");
+      const rows = procs.map((p) => `${p.pid} ${p.ppid} claude`);
+      return [...psTable, ...rows].join("\n") + "\n";
+    }
     if (cmd.startsWith("pgrep -x 'claude'")) {
       if (procs.length === 0) throw new Error("pgrep: no match");
       return procs.map((p) => p.pid).join("\n") + "\n";
@@ -168,5 +175,36 @@ describe("ClaudePoller", () => {
       nowFn: () => NOW,
     });
     expect(collect(poller)).toEqual([]);
+  });
+
+  it("skips claude processes launched by the Paseo daemon (plugin reports them)", () => {
+    const claudeDir = makeClaudeDir([
+      { cwd: "/Users/gordon/dev/foo", sessionId: "sess-paseo" },
+      { cwd: "/Users/gordon/dev/bar", sessionId: "sess-mine" },
+    ]);
+    const poller = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn(
+        [
+          { pid: 100, cwd: "/Users/gordon/dev/foo", ppid: 50 }, // child of Paseo Daemon
+          { pid: 200, cwd: "/Users/gordon/dev/bar", ppid: 60 }, // child of a terminal shell
+        ],
+        ["40 1 node /Users/gordon/.local/bin/paseo daemon run --home /Users/gordon/.paseo",
+          "45 40 Paseo Supervisor", "50 45 Paseo Daemon", "60 1 -zsh"],
+      ),
+      nowFn: () => NOW,
+    });
+    const events = collect(poller);
+    expect(events.map((e) => e.sessionId)).toEqual(["sess-mine"]);
+  });
+
+  it("does not skip anything when ps is unavailable (fail open)", () => {
+    const claudeDir = makeClaudeDir([{ cwd: "/Users/gordon/dev/foo", sessionId: "sess-aaa" }]);
+    const poller = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn([{ pid: 100, cwd: "/Users/gordon/dev/foo", ppid: 50 }]),
+      nowFn: () => NOW,
+    });
+    expect(collect(poller).map((e) => e.sessionId)).toEqual(["sess-aaa"]);
   });
 });

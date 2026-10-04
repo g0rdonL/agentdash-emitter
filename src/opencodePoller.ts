@@ -35,6 +35,11 @@ export interface OpencodePollerOptions {
   nowFn?: () => number;
   /** Injectable for tests; defaults to child_process.execSync (sqlite3 CLI fallback). */
   execFn?: (cmd: string) => string;
+  /**
+   * OpenCode session ids to skip, re-read every poll. Used for sessions owned
+   * by Paseo agents, which the agentdash Paseo plugin already reports.
+   */
+  excludeSessionIds?: () => Set<string>;
 }
 
 interface SessionRow {
@@ -63,6 +68,7 @@ export class OpencodePoller {
   private readonly workingThresholdMs: number;
   private readonly nowFn: () => number;
   private readonly execFn: (cmd: string) => string;
+  private readonly excludeSessionIds: () => Set<string>;
   private timer: ReturnType<typeof setInterval> | null = null;
   private known = new Map<string, KnownSession>();
   private missingLogged = false;
@@ -77,6 +83,7 @@ export class OpencodePoller {
     this.nowFn = opts.nowFn ?? Date.now;
     this.execFn = opts.execFn ??
       ((cmd: string) => nodeExecSync(cmd, { encoding: "utf-8" }) as string);
+    this.excludeSessionIds = opts.excludeSessionIds ?? (() => new Set());
   }
 
   start(onEvent: (event: StatusEvent) => void): void {
@@ -109,8 +116,10 @@ export class OpencodePoller {
     this.missingLogged = false;
     this.lockedLogged = false;
 
+    const excluded = this.excludeSessionIds();
     const live = new Map<string, KnownSession>();
     for (const row of rows) {
+      if (excluded.has(row.id)) continue;
       const sessionId = SESSION_PREFIX + row.id;
       const projectLabel = this.titleFor(row);
       const status: "thinking" | "waiting" =

@@ -11,6 +11,9 @@ import process from "node:process";
  *
  * - Only sessions with a LIVE claude process become rows (state=thinking).
  *   Idle JSONLs are ignored — a 24h idle window would flood the widget.
+ * - Claude processes launched by the Paseo daemon are skipped: the agentdash
+ *   Paseo plugin already reports those agents (dedup). They are recognised
+ *   by an ancestor whose ps command line is the Paseo daemon/supervisor.
  * - When a previously-reported session loses its process, one final
  *   'disconnected' event is emitted, then it is forgotten.
  *
@@ -24,6 +27,10 @@ import process from "node:process";
 export function encodeCwd(cwd: string): string {
   return String(cwd).replace(/[/.]/g, "-");
 }
+
+// Ancestors that mark a claude process as Paseo-launched. The daemon renames
+// its process title to "Paseo Daemon", which pgrep -f cannot see but ps can.
+const PASEO_ANCESTOR_RE = /^(Paseo (Daemon|Supervisor)\b|\S*node\b.*\bpaseo daemon run\b)/;
 
 export interface ClaudePollerOptions {
   claudeDir?: string;
@@ -131,13 +138,47 @@ export class ClaudePoller {
       return []; // pgrep exits 1 when nothing matches
     }
 
+    const paseoOwned = this.paseoOwnedFilter();
     const out: Array<{ pid: number; cwd: string }> = [];
     for (const pid of pids) {
+      if (paseoOwned(pid)) continue; // agentdash Paseo plugin reports it
       const cwd = this.cwdOf(pid);
       if (!cwd) continue;
       out.push({ pid, cwd });
     }
     return out;
+  }
+
+  /**
+   * Returns a predicate for "pid descends from the Paseo daemon", built from
+   * one ps snapshot. Fails open (nothing skipped) if ps is unavailable, so a
+   * ps hiccup can only cause a duplicate row, never a missing one.
+   */
+  private paseoOwnedFilter(): (pid: number) => boolean {
+    const parent = new Map<number, number>();
+    const paseo = new Set<number>();
+    try {
+      for (const line of this.execFn("ps -axo pid=,ppid=,command=").split("\n")) {
+        const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+        if (!m) continue;
+        const pid = parseInt(m[1], 10);
+        parent.set(pid, parseInt(m[2], 10));
+        if (PASEO_ANCESTOR_RE.test(m[3])) paseo.add(pid);
+      }
+    } catch {
+      return () => false;
+    }
+    if (paseo.size === 0) return () => false;
+    return (pid: number) => {
+      let current = pid;
+      for (let hops = 0; hops < 20; hops++) {
+        const ppid = parent.get(current);
+        if (ppid === undefined || ppid <= 1) return false;
+        if (paseo.has(ppid)) return true;
+        current = ppid;
+      }
+      return false;
+    };
   }
 
   private cwdOf(pid: number): string | null {
