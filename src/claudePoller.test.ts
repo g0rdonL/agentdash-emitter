@@ -276,6 +276,36 @@ describe("ClaudePoller", () => {
     expect(poller.liveEvents()).toEqual([]);
   });
 
+  it("does not report Herald helper sessions, and keeps real ones", () => {
+    const cwd = "/Users/gordon";
+    const claudeDir = makeClaudeDir([
+      { cwd, sessionId: "sess-herald" },
+      { cwd, sessionId: "sess-real" },
+    ]);
+    const projDir = join(claudeDir, "projects", encodeCwd(cwd));
+    const writePrompt = (id: string, text: string, mtime: number) => {
+      const f = join(projDir, `${id}.jsonl`);
+      writeFileSync(
+        f,
+        JSON.stringify({ type: "user", cwd, message: { content: [{ type: "text", text }] } }) + "\n",
+      );
+      utimesSync(f, mtime, mtime);
+    };
+    writePrompt("sess-herald", "You are Herald. You tell a developer, out loud, what changed.", 2000);
+    writePrompt("sess-real", "fix the widget", 1000);
+    const poller = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn([
+        { pid: 100, cwd, ppid: 1 }, // newest file -> the Herald helper
+        { pid: 101, cwd, ppid: 1 },
+      ]),
+      nowFn: () => NOW,
+    });
+    const events = collect(poller);
+    expect(events.map((e) => e.sessionId)).toEqual(["sess-real"]);
+    expect(poller.liveEvents().map((e) => e.sessionId)).toEqual(["sess-real"]);
+  });
+
   it("falls back to claude-<pid> when no session file matches the cwd", () => {
     const claudeDir = makeClaudeDir([]); // empty projects dir
     const poller = new ClaudePoller({

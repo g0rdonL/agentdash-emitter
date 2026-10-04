@@ -58,8 +58,8 @@ interface LiveSession {
 const LABEL_MAX = 40;
 const LABEL_SCAN_BYTES = 128 * 1024;
 
-/** First real user prompt in a session JSONL, trimmed for a widget row. */
-export function firstPromptLabel(filePath: string): string | null {
+/** First real user prompt in a session JSONL, whitespace-flattened. */
+export function firstPrompt(filePath: string): string | null {
   let text: string;
   try {
     const fd = openSync(filePath, "r");
@@ -88,10 +88,22 @@ export function firstPromptLabel(filePath: string): string | null {
       : null;
     const flat = String(raw ?? "").replace(/\s+/g, " ").trim();
     if (!flat || flat.startsWith("<")) continue; // tool results, command/system tags
-    return flat.length > LABEL_MAX ? flat.slice(0, LABEL_MAX - 1) + "…" : flat;
+    return flat;
   }
   return null;
 }
+
+/** First real user prompt, trimmed for a widget row. */
+export function firstPromptLabel(filePath: string): string | null {
+  const flat = firstPrompt(filePath);
+  if (!flat) return null;
+  return flat.length > LABEL_MAX ? flat.slice(0, LABEL_MAX - 1) + "…" : flat;
+}
+
+// Short-lived helper sessions that tools spawn behind the user's back (the
+// Herald Paseo plugin runs `claude` outside the Paseo daemon's process tree,
+// so ancestry can't catch it). Recognised by their fixed first prompt.
+const HELPER_PROMPT_RE = /^You are Herald\b/;
 
 export class ClaudePoller {
   private readonly claudeDir: string;
@@ -238,6 +250,9 @@ export class ClaudePoller {
         }
       }
       sessionId ??= `claude-${proc.pid}`;
+      // Helper sessions keep their claim (so no other process takes the file)
+      // but never become rows.
+      if (this.isHelperSession(sessionId, proc.cwd)) continue;
       const label = this.labelFor(sessionId, proc.cwd, proc.pid);
       result.set(sessionId, { sessionId, cwd: proc.cwd, pid: proc.pid, label });
     }
@@ -247,6 +262,22 @@ export class ClaudePoller {
   // Cached per session: the first prompt never changes, and it's only emitted
   // once, so don't rescan the JSONL every poll.
   private labels = new Map<string, string>();
+
+  // First prompt per session; only non-null results are cached so a session
+  // whose JSONL has no prompt yet is looked at again next poll.
+  private prompts = new Map<string, string>();
+
+  private isHelperSession(sessionId: string, cwd: string): boolean {
+    let prompt = this.prompts.get(sessionId);
+    if (prompt === undefined) {
+      const file = join(this.claudeDir, "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+      const found = firstPrompt(file);
+      if (found === null) return false;
+      prompt = found;
+      this.prompts.set(sessionId, prompt);
+    }
+    return HELPER_PROMPT_RE.test(prompt);
+  }
 
   private labelFor(sessionId: string, cwd: string, pid: number): string {
     const cached = this.labels.get(sessionId);
