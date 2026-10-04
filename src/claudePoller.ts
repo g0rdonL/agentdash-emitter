@@ -53,6 +53,9 @@ export class ClaudePoller {
   private readonly nowFn: () => number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private known = new Map<string, LiveSession>();
+  // pid -> session it was first assigned. Keeps two claude processes sharing a
+  // cwd from swapping/collapsing onto whichever JSONL was written last.
+  private pidSession = new Map<number, string>();
 
   constructor(opts: ClaudePollerOptions = {}) {
     this.claudeDir = opts.claudeDir ?? join(homedir(), ".claude");
@@ -117,9 +120,35 @@ export class ClaudePoller {
     const procs = this.claudeProcesses();
     if (procs.length === 0) return result;
 
+    const livePids = new Set(procs.map((p) => p.pid));
+    for (const pid of this.pidSession.keys()) {
+      if (!livePids.has(pid)) this.pidSession.delete(pid);
+    }
+
+    // Sticky assignments first, so a long-running process keeps its row even
+    // when a sibling in the same cwd writes a newer JSONL.
+    const claimed = new Set<string>();
     for (const proc of procs) {
-      const session = this.sessionForCwd(proc.cwd);
-      const sessionId = session ?? `claude-${proc.pid}`;
+      const sticky = this.pidSession.get(proc.pid);
+      if (sticky && !claimed.has(sticky)) claimed.add(sticky);
+    }
+
+    const candidates = new Map<string, string[]>();
+    for (const proc of procs.sort((a, b) => a.pid - b.pid)) {
+      let sessionId = this.pidSession.get(proc.pid);
+      if (!sessionId) {
+        let list = candidates.get(proc.cwd);
+        if (!list) {
+          list = this.sessionsForCwd(proc.cwd);
+          candidates.set(proc.cwd, list);
+        }
+        sessionId = list.find((id) => !claimed.has(id));
+        if (sessionId) {
+          claimed.add(sessionId);
+          this.pidSession.set(proc.pid, sessionId);
+        }
+      }
+      sessionId ??= `claude-${proc.pid}`;
       result.set(sessionId, { sessionId, cwd: proc.cwd, pid: proc.pid });
     }
     return result;
@@ -195,70 +224,59 @@ export class ClaudePoller {
   }
 
   /**
-   * Find the most recently active session JSONL whose project dir matches
-   * the process cwd (forward-encoded) or whose stored cwd field matches.
+   * Session ids whose project dir matches the process cwd (forward-encoded),
+   * most recently written first. Files whose stored cwd differs (encoded-dir
+   * collision) are skipped.
    */
-  private sessionForCwd(cwd: string): string | null {
+  private sessionsForCwd(cwd: string): string[] {
     const projectsDir = join(this.claudeDir, "projects");
-    if (!existsSync(projectsDir)) return null;
+    if (!existsSync(projectsDir)) return [];
 
-    const encoded = encodeCwd(cwd);
-    let best: { sessionId: string; mtime: number } | null = null;
-
-    let dirs: string[];
+    const dirPath = join(projectsDir, encodeCwd(cwd));
+    let files: string[];
     try {
-      dirs = readdirSync(projectsDir);
+      files = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
     } catch {
-      return null;
+      return [];
     }
 
-    for (const dir of dirs) {
-      if (dir !== encoded) continue;
-      const dirPath = join(projectsDir, dir);
-      let files: string[];
+    const found: Array<{ sessionId: string; mtime: number }> = [];
+    for (const file of files) {
+      const filePath = join(dirPath, file);
+      let mtime: number;
       try {
-        files = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
+        mtime = statSync(filePath).mtime.getTime();
       } catch {
         continue;
       }
-      for (const file of files) {
-        const filePath = join(dirPath, file);
-        let mtime: number;
-        try {
-          mtime = statSync(filePath).mtime.getTime();
-        } catch {
-          continue;
-        }
-        if (best && mtime <= best.mtime) continue;
 
-        let sessionId = file.replace(/\.jsonl$/, "");
-        // Prefer sessionId + cwd from the JSONL data when present.
-        try {
-          const lines = readFileSync(filePath, "utf-8").split("\n").filter(
-            Boolean,
-          );
-          for (
-            let i = lines.length - 1;
-            i >= 0 && i >= lines.length - 20;
-            i--
-          ) {
-            try {
-              const d = JSON.parse(lines[i]);
-              if (d.cwd && d.cwd !== cwd) {
-                // Encoded dir collided with a different real path — skip file.
-                sessionId = "";
-              }
-              if (d.cwd) break;
-            } catch {
-              /* skip unparsable line */
+      let sessionId = file.replace(/\.jsonl$/, "");
+      // Prefer sessionId + cwd from the JSONL data when present.
+      try {
+        const lines = readFileSync(filePath, "utf-8").split("\n").filter(
+          Boolean,
+        );
+        for (
+          let i = lines.length - 1;
+          i >= 0 && i >= lines.length - 20;
+          i--
+        ) {
+          try {
+            const d = JSON.parse(lines[i]);
+            if (d.cwd && d.cwd !== cwd) {
+              // Encoded dir collided with a different real path — skip file.
+              sessionId = "";
             }
+            if (d.cwd) break;
+          } catch {
+            /* skip unparsable line */
           }
-        } catch {
-          /* fall back to filename stem */
         }
-        if (sessionId) best = { sessionId, mtime };
+      } catch {
+        /* fall back to filename stem */
       }
+      if (sessionId) found.push({ sessionId, mtime });
     }
-    return best?.sessionId ?? null;
+    return found.sort((x, y) => y.mtime - x.mtime).map((f) => f.sessionId);
   }
 }

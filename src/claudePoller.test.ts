@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { ClaudePoller, encodeCwd } from "./claudePoller.js";
@@ -149,6 +149,31 @@ describe("ClaudePoller", () => {
       },
     ]);
     expect(collect(poller)).toEqual([]); // forgotten, no repeat
+  });
+
+  it("keeps two processes in one cwd on separate, stable sessions", () => {
+    const cwd = "/Users/gordon/dev/foo";
+    const claudeDir = makeClaudeDir([
+      { cwd, sessionId: "sess-old" },
+      { cwd, sessionId: "sess-new" },
+    ]);
+    const projDir = join(claudeDir, "projects", encodeCwd(cwd));
+    utimesSync(join(projDir, "sess-old.jsonl"), 1000, 1000);
+    utimesSync(join(projDir, "sess-new.jsonl"), 2000, 2000);
+    const poller = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn([
+        { pid: 100, cwd, ppid: 1 },
+        { pid: 101, cwd, ppid: 1 },
+      ]),
+      nowFn: () => NOW,
+    });
+    const first = collect(poller);
+    expect(first.map((e) => e.sessionId).sort()).toEqual(["sess-new", "sess-old"]);
+
+    // The older session now gets written to; assignments must not swap or flap.
+    utimesSync(join(projDir, "sess-old.jsonl"), 3000, 3000);
+    expect(collect(poller)).toEqual([]);
   });
 
   it("falls back to claude-<pid> when no session file matches the cwd", () => {
