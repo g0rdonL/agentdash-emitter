@@ -1,5 +1,5 @@
 import { execSync as nodeExecSync } from "child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "fs";
 import { basename, join } from "path";
 import { homedir } from "os";
 import type { StatusEvent } from "./contract.js";
@@ -44,6 +44,45 @@ interface LiveSession {
   sessionId: string;
   cwd: string;
   pid: number;
+  label: string;
+}
+
+const LABEL_MAX = 40;
+const LABEL_SCAN_BYTES = 128 * 1024;
+
+/** First real user prompt in a session JSONL, trimmed for a widget row. */
+export function firstPromptLabel(filePath: string): string | null {
+  let text: string;
+  try {
+    const fd = openSync(filePath, "r");
+    try {
+      const buf = Buffer.alloc(LABEL_SCAN_BYTES);
+      text = buf.toString("utf-8", 0, readSync(fd, buf, 0, buf.length, 0));
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  for (const line of text.split("\n")) {
+    let d: any;
+    try {
+      d = JSON.parse(line);
+    } catch {
+      continue; // blank, or the last line cut off by the scan window
+    }
+    if (d.type !== "user" || d.isMeta || d.isSidechain) continue;
+    const c = d.message?.content;
+    const raw = typeof c === "string"
+      ? c
+      : Array.isArray(c)
+      ? c.find((b: any) => b?.type === "text" && typeof b.text === "string")?.text
+      : null;
+    const flat = String(raw ?? "").replace(/\s+/g, " ").trim();
+    if (!flat || flat.startsWith("<")) continue; // tool results, command/system tags
+    return flat.length > LABEL_MAX ? flat.slice(0, LABEL_MAX - 1) + "…" : flat;
+  }
+  return null;
 }
 
 export class ClaudePoller {
@@ -93,7 +132,7 @@ export class ClaudePoller {
         onEvent({
           sessionId,
           status: "thinking",
-          projectLabel: basename(s.cwd) || s.cwd,
+          projectLabel: s.label,
           updatedAt: now,
         });
       }
@@ -105,7 +144,7 @@ export class ClaudePoller {
         onEvent({
           sessionId,
           status: "disconnected",
-          projectLabel: basename(s.cwd) || s.cwd,
+          projectLabel: s.label,
           updatedAt: now,
         });
         this.known.delete(sessionId);
@@ -149,9 +188,26 @@ export class ClaudePoller {
         }
       }
       sessionId ??= `claude-${proc.pid}`;
-      result.set(sessionId, { sessionId, cwd: proc.cwd, pid: proc.pid });
+      const label = this.labelFor(sessionId, proc.cwd, proc.pid);
+      result.set(sessionId, { sessionId, cwd: proc.cwd, pid: proc.pid, label });
     }
     return result;
+  }
+
+  // Cached per session: the first prompt never changes, and it's only emitted
+  // once, so don't rescan the JSONL every poll.
+  private labels = new Map<string, string>();
+
+  private labelFor(sessionId: string, cwd: string, pid: number): string {
+    const cached = this.labels.get(sessionId);
+    if (cached) return cached;
+    const file = join(this.claudeDir, "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+    const label = firstPromptLabel(file) ??
+      (sessionId.startsWith("claude-")
+        ? `${basename(cwd) || cwd} (${pid})`
+        : `${basename(cwd) || cwd} ${sessionId.slice(0, 8)}`);
+    this.labels.set(sessionId, label);
+    return label;
   }
 
   private claudeProcesses(): Array<{ pid: number; cwd: string }> {

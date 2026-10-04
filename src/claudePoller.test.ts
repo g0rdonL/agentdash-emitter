@@ -85,7 +85,7 @@ describe("ClaudePoller", () => {
       {
         sessionId: "sess-aaa",
         status: "thinking",
-        projectLabel: "foo",
+        projectLabel: "foo sess-aaa",
         updatedAt: NOW,
       },
     ]);
@@ -104,7 +104,7 @@ describe("ClaudePoller", () => {
     const events = collect(poller);
     expect(events).toHaveLength(1);
     expect(events[0].sessionId).toBe("sess-hyph");
-    expect(events[0].projectLabel).toBe("gordon-trader");
+    expect(events[0].projectLabel).toBe("gordon-trader sess-hyp");
   });
 
   it("does not re-emit for an already-known session", () => {
@@ -144,7 +144,7 @@ describe("ClaudePoller", () => {
       {
         sessionId: "sess-aaa",
         status: "disconnected",
-        projectLabel: "foo",
+        projectLabel: "foo sess-aaa",
         updatedAt: NOW,
       },
     ]);
@@ -174,6 +174,28 @@ describe("ClaudePoller", () => {
     // The older session now gets written to; assignments must not swap or flap.
     utimesSync(join(projDir, "sess-old.jsonl"), 3000, 3000);
     expect(collect(poller)).toEqual([]);
+  });
+
+  it("labels a session by its first real user prompt", () => {
+    const cwd = "/Users/gordon";
+    const claudeDir = makeClaudeDir([{ cwd, sessionId: "sess-lbl" }]);
+    const lines = [
+      { type: "user", isMeta: true, message: { content: "meta noise" } },
+      { type: "user", message: { content: [{ type: "text", text: "<system-reminder>x</system-reminder>" }] } },
+      { type: "user", message: { content: [{ type: "text", text: "fix the   widget\nplease, it keeps flapping between two sessions" }] } },
+    ];
+    writeFileSync(
+      join(claudeDir, "projects", encodeCwd(cwd), "sess-lbl.jsonl"),
+      lines.map((l) => JSON.stringify({ ...l, cwd })).join("\n") + "\n",
+    );
+    const poller = new ClaudePoller({
+      claudeDir,
+      execFn: makeExecFn([{ pid: 100, cwd, ppid: 1 }]),
+      nowFn: () => NOW,
+    });
+    const [ev] = collect(poller);
+    expect(ev.projectLabel).toBe("fix the widget please, it keeps flappin…");
+    expect(ev.projectLabel.length).toBeLessThanOrEqual(40);
   });
 
   it("falls back to claude-<pid> when no session file matches the cwd", () => {
