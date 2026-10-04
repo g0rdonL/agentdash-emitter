@@ -19,6 +19,9 @@
     <string>/Users/gordon/dev/agent-status-widget/emitter</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <!-- Paseo status comes from the agentdash Paseo plugin; avoid double posts -->
+        <key>PASEO_POLLER</key>
+        <string>0</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>BACKEND_URL</key>
